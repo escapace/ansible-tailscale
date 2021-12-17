@@ -1,0 +1,70 @@
+---
+
+- name: install dependencies
+  package:
+    name: "{{ packages }}"
+  vars:
+    packages:
+     - curl
+     - jq
+
+- name: create tailscale directories
+  file:
+    owner: root
+    group: root
+    path: "{{ item }}"
+    state: directory
+    mode: 0750
+  with_items:
+    - "/opt/tailscale"
+    - "/opt/tailscale/bin"
+
+- name: add tailscale dnf repository
+  command: dnf config-manager --add-repo {{ tailscale_repository }}
+  args:
+    creates: /etc/yum.repos.d/tailscale.repo
+    warn: false
+
+- name: install tailscale
+  dnf:
+    name: tailscale
+    state: present
+
+- name: create directory for systemd drop-ins
+  file:
+    path: /etc/systemd/system/tailscaled.service.d
+    owner: root
+    group: root
+    state: directory
+    mode: 0755
+  notify:
+    - tailscale daemon-reload
+
+- name: systemd drop-in for options
+  template:
+    src:  "drop-in-ferm.conf.j2"
+    dest: "/etc/systemd/system/tailscaled.service.d/010-ferm.conf"
+    owner: root
+    group: root
+    mode: 0644
+  notify:
+    - tailscale daemon-reload
+
+- name: create the tailscale ferm conf files
+  template: src=templates/ferm-tailscale.conf.j2 dest=/etc/ferm/ferm.d/1020-tailscale.conf owner=root group=root mode=0600
+
+- name: copy tailscale-up script
+  ansible.builtin.copy:
+    src: tailscale-up
+    dest: /opt/tailscale/bin/tailscale-up
+    mode: '0750'
+    owner: root
+    group: root
+
+- name: copy run-tailscale script
+  ansible.builtin.copy:
+    src: run-tailscale
+    dest: /opt/tailscale/bin/run-tailscale
+    mode: '0750'
+    owner: root
+    group: root

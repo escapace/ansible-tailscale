@@ -1,0 +1,6 @@
+---
+# handlers file for escapace.tailscale
+
+- name: tailscale daemon-reload
+  systemd:
+    daemon_reload: yes

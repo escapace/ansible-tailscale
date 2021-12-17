@@ -1,0 +1,94 @@
+#!/bin/bash
+
+set -e
+set -u
+set -o pipefail
+
+umask 027
+
+readonly SCRIPT_NAME="$(basename "$0")"
+readonly EC2_INSTANCE_METADATA_URL="http://169.254.169.254/latest/meta-data"
+# readonly EC2_INSTANCE_DYNAMIC_DATA_URL="http://169.254.169.254/latest/dynamic"
+
+function log {
+  local -r level="$1"
+  local -r message="$2"
+  local -r timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+  >&2 echo -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
+}
+
+function log_info {
+  local -r message="$1"
+  log "INFO" "$message"
+}
+
+function log_warn {
+  local -r message="$1"
+  log "WARN" "$message"
+}
+
+function log_error {
+  local -r message="$1"
+  log "ERROR" "$message"
+}
+
+function lookup_path_in_instance_metadata {
+  local -r path="$1"
+  curl --silent --show-error --location "$EC2_INSTANCE_METADATA_URL/$path/"
+}
+
+function get_object {
+  local -r source="$1"
+  local -r target="$2"
+  local -r user="$3"
+
+  local -r secrets_bucket_name="${TAILSCALE_SECRETS_BUCKET_NAME}"
+
+  log_info "Downloading ${source}"
+
+  aws s3api get-object \
+    --bucket "${secrets_bucket_name}" \
+    --key "${source}" \
+    "${target}" > /dev/null || exit 1
+
+  chown "${user}:${user}" "${target}"
+}
+
+function get_object_value {
+  local -r source="$1"
+  local secrets_bucket_name="${TAILSCALE_SECRETS_BUCKET_NAME}"
+
+  log_info "Downloading ${source}"
+
+  aws s3 cp --quiet \
+    "s3://${secrets_bucket_name}/${source}" /dev/stdout || exit 1
+}
+
+function run {
+  umask 027
+
+  local mac
+  local auth_key
+  local ipv4_cidr_block
+  local ipv6_cidr_block
+
+  mac="$(cat /sys/class/net/eth0/address)"
+  auth_key="$(get_object_value "bastion/tailscale-auth-key.txt")"
+  ipv4_cidr_block="$(lookup_path_in_instance_metadata "network/interfaces/macs/${mac}/vpc-ipv4-cidr-block")"
+  ipv6_cidr_block="$(lookup_path_in_instance_metadata "network/interfaces/macs/${mac}/vpc-ipv6-cidr-blocks")"
+
+  tailscale up \
+    --accept-dns=false  \
+    --accept-routes=false \
+    --authkey="${auth_key}" \
+    --advertise-routes="${ipv4_cidr_block},${ipv6_cidr_block}" || exit 1
+}
+
+if [[ -z "${TAILSCALE_SECRETS_BUCKET_NAME}" ]]
+then
+  log_error "TAILSCALE_SECRETS_BUCKET_NAME not set"
+
+  exit 1
+fi
+
+run "$@"
