@@ -1,0 +1,4 @@
+---
+# defaults file for escapace.tailscale
+
+tailscale_repository: https://pkgs.tailscale.com/stable/centos/8/tailscale.repo

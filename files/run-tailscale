@@ -1,0 +1,115 @@
+#!/bin/bash
+
+set -e
+set -u
+set -o pipefail
+
+umask 027
+
+readonly SCRIPT_NAME="$(basename "$0")"
+
+function print_usage {
+  echo
+  echo "Usage: run-tailscale [OPTIONS]"
+  echo
+  echo "This script is used to configure and run tailscale on an AWS server."
+  echo
+  echo "Options:"
+  echo
+  echo -e "  --secrets-bucket-name\t\tAWS S3 secrets bucket name."
+  echo
+}
+
+function log {
+  local -r level="$1"
+  local -r message="$2"
+  local -r timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+  >&2 echo -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
+}
+
+function log_info {
+  local -r message="$1"
+  log "INFO" "$message"
+}
+
+function log_warn {
+  local -r message="$1"
+  log "WARN" "$message"
+}
+
+function log_error {
+  local -r message="$1"
+  log "ERROR" "$message"
+}
+
+function assert_not_empty {
+  local -r arg_name="$1"
+  local -r arg_value="$2"
+
+  if [[ -z "$arg_value" ]]; then
+    log_error "The value for '$arg_name' cannot be empty"
+    print_usage
+    exit 1
+  fi
+}
+
+function assert_is_installed {
+  local -r name="$1"
+
+  if [[ ! $(command -v "${name}") ]]; then
+    log_error "The binary '$name' is required by this script but is not installed or in the system's PATH."
+    exit 1
+  fi
+}
+
+function run {
+  umask 027
+
+  local secrets_bucket_name=""
+
+  while [[ $# -gt 0 ]]; do
+    local key="$1"
+
+    case "$key" in
+      --secrets-bucket-name)
+        assert_not_empty "$key" "$2"
+        secrets_bucket_name="$2"
+        shift
+        ;;
+      --help)
+        print_usage
+        exit
+        ;;
+      *)
+        log_error "Unrecognized argument: $key"
+        print_usage
+        exit 1
+        ;;
+    esac
+
+    shift
+  done
+
+  assert_not_empty "--secrets-bucket-name" "$secrets_bucket_name"
+
+  assert_is_installed "systemctl"
+  assert_is_installed "aws"
+  assert_is_installed "curl"
+  assert_is_installed "jq"
+
+  local -r config=$(cat <<EOF
+[Service]
+Environment='TAILSCALE_SECRETS_BUCKET_NAME=${secrets_bucket_name}'
+ExecStartPost=/opt/tailscale/bin/tailscale-up
+
+EOF
+)
+
+  echo -e "$config" > "/etc/systemd/system/tailscaled.service.d/020-tailscale-up.conf"
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable tailscaled.service
+  sudo systemctl restart tailscaled.service
+}
+
+run "$@"
