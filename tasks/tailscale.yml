@@ -50,8 +50,14 @@
   notify:
     - tailscale daemon-reload
 
+- name: enable tailscaled on boot
+  service: name=tailscaled enabled=yes
+
 - name: create the tailscale ferm conf files
   template: src=templates/ferm-tailscale.conf.j2 dest=/etc/ferm/ferm.d/1020-tailscale.conf owner=root group=root mode=0600
+
+- name: create the tailscale ferm var files
+  template: src=templates/ferm-tailscale-variables.conf.j2 dest=/etc/ferm/vars.d/1010-tailscale.conf owner=root group=root mode=0600
 
 - name: copy tailscale-up script
   ansible.builtin.copy:
@@ -68,3 +74,18 @@
     mode: '0750'
     owner: root
     group: root
+
+# - name: check if kresd.conf.d exists
+#   ansible.builtin.stat:
+#     path: /etc/knot-resolver/kresd.conf.d/
+#   register: tailscale_kresd_conf_d
+#   changed_when: false
+#
+# - name: tailscale kresd configuration
+#   template:
+#     src: "kresd-view-tailscale.conf.j2"
+#     dest: "/etc/knot-resolver/kresd.conf.d/910-view-tailscale.conf"
+#     owner: root
+#     group: knot-resolver
+#     mode: 0640
+#   when: tailscale_kresd_conf_d.stat.isdir is defined and tailscale_kresd_conf_d.stat.isdir
