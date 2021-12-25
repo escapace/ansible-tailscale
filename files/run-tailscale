@@ -4,8 +4,6 @@ set -e
 set -u
 set -o pipefail
 
-umask 027
-
 readonly SCRIPT_NAME="$(basename "$0")"
 
 function print_usage {
@@ -63,7 +61,7 @@ function assert_is_installed {
 }
 
 function run {
-  umask 027
+  umask 022
 
   local secrets_bucket_name=""
 

@@ -1,5 +1,32 @@
 domain (ip ip6) table filter {
   chain INPUT {
-    proto udp dport 41641 ACCEPT;
+    daddr @ipfilter($DEFAULT_IP) proto udp dport $TAILSCALE_PORT ACCEPT;
+    #saddr @ipfilter($TAILSCALE_CIDR) daddr @ipfilter($DEFAULT_IP) ACCEPT;
+  }
+}
+
+domain (ip ip6) table filter {
+  chain (ts-input ts-forward) @preserve;
+
+  chain INPUT {
+    jump ts-input;
+  }
+
+  chain FORWARD {
+    jump ts-forward;
+  }
+}
+
+domain ip table nat {
+  chain ts-postrouting @preserve;
+
+  chain POSTROUTING {
+    jump ts-postrouting;
+  }
+}
+
+domain ip6 table nat {
+  chain POSTROUTING {
+    saddr $TAILSCALE_V6_CIDR outerface $DEFAULT_V6_DEV MASQUERADE;
   }
 }

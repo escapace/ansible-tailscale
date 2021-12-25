@@ -71,11 +71,16 @@ function run {
   local auth_key
   local ipv4_cidr_block
   local ipv6_cidr_block
+  # local dummy0_v4_cidr_block
+  # local dummy0_v6_cidr_block
 
   mac="$(cat /sys/class/net/eth0/address)"
   auth_key="$(get_object_value "bastion/tailscale-auth-key.txt")"
   ipv4_cidr_block="$(lookup_path_in_instance_metadata "network/interfaces/macs/${mac}/vpc-ipv4-cidr-block")"
   ipv6_cidr_block="$(lookup_path_in_instance_metadata "network/interfaces/macs/${mac}/vpc-ipv6-cidr-blocks")"
+  # dummy0_v4_cidr_block="$(ip -o -4 addr show dummy0 scope global | awk '/inet/ { print $4 }' | head -n 1)"
+  # dummy0_v6_cidr_block="$(ip -o -6 addr show dummy0 scope global | awk '/inet/ { print $4 }' | head -n 1)"
+  # ,${dummy0_v4_cidr_block},${dummy0_v6_cidr_block}
 
   tailscale up \
     --accept-dns=false  \

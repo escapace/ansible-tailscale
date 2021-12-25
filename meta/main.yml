@@ -16,3 +16,7 @@ galaxy_info:
   galaxy_tags:
   - escapace
   - tailscale
+
+dependencies:
+  - { role: escapace.ferm }
+  - { role: escapace.aws_cli }
