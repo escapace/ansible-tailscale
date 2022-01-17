@@ -1,7 +1,6 @@
 domain (ip ip6) table filter {
   chain INPUT {
     daddr @ipfilter($DEFAULT_IP) proto udp dport $TAILSCALE_PORT ACCEPT;
-    #saddr @ipfilter($TAILSCALE_CIDR) daddr @ipfilter($DEFAULT_IP) ACCEPT;
   }
 }
 

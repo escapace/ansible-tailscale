@@ -1,0 +1,20 @@
+---
+prerun: false
+dependency:
+  name: galaxy
+driver:
+  name: docker
+lint: |
+    yamllint .
+    ansible-lint .
+platforms:
+  - name: instance
+    image: ghcr.io/escapace/ansible-test-containers
+    command: /sbin/init
+    tmpfs:
+      - /run
+      - /tmp,mode=1777
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+provisioner:
+  name: ansible

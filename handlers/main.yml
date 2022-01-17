@@ -3,4 +3,4 @@
 
 - name: tailscale daemon-reload
   systemd:
-    daemon_reload: yes
+    daemon_reload: true
