@@ -5,6 +5,7 @@
     name: "{{ packages }}"
   vars:
     packages:
+      - dnf-plugins-core
       - curl
       - jq
 
