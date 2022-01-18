@@ -6,9 +6,12 @@ set -o pipefail
 
 umask 027
 
-readonly SCRIPT_NAME="$(basename "$0")"
-readonly EC2_INSTANCE_METADATA_URL="http://169.254.169.254/latest/meta-data"
-# readonly EC2_INSTANCE_DYNAMIC_DATA_URL="http://169.254.169.254/latest/dynamic"
+SCRIPT_NAME=
+SCRIPT_NAME="$(basename "$0")"
+
+set -o allexport
+source "/etc/sysconfig/ec2-environment"
+set +o allexport
 
 function log {
   local -r level="$1"
@@ -30,11 +33,6 @@ function log_warn {
 function log_error {
   local -r message="$1"
   log "ERROR" "$message"
-}
-
-function lookup_path_in_instance_metadata {
-  local -r path="$1"
-  curl --silent --show-error --location "$EC2_INSTANCE_METADATA_URL/$path/"
 }
 
 function get_object {
@@ -64,26 +62,31 @@ function get_object_value {
     "s3://${secrets_bucket_name}/${source}" /dev/stdout || exit 1
 }
 
+function get_vpc_cidr {
+  local -r type="${1}"
+  local -r interface="${2}"
+
+  local variable_reference
+
+  variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_VPC_CIDR"
+
+  echo "${!variable_reference}"
+}
+
 function run {
   umask 027
 
-  local mac
   local auth_key
   local ipv4_cidr_block
   local ipv6_cidr_block
-  # local dummy0_v4_cidr_block
-  # local dummy0_v6_cidr_block
+  local interface="eth0"
 
-  mac="$(cat /sys/class/net/eth0/address)"
   auth_key="$(get_object_value "bastion/tailscale-auth-key.txt")"
-  ipv4_cidr_block="$(lookup_path_in_instance_metadata "network/interfaces/macs/${mac}/vpc-ipv4-cidr-block")"
-  ipv6_cidr_block="$(lookup_path_in_instance_metadata "network/interfaces/macs/${mac}/vpc-ipv6-cidr-blocks")"
-  # dummy0_v4_cidr_block="$(ip -o -4 addr show dummy0 scope global | awk '/inet/ { print $4 }' | head -n 1)"
-  # dummy0_v6_cidr_block="$(ip -o -6 addr show dummy0 scope global | awk '/inet/ { print $4 }' | head -n 1)"
-  # ,${dummy0_v4_cidr_block},${dummy0_v6_cidr_block}
+  ipv4_cidr_block="$(get_vpc_cidr "ipv4" "${interface}")"
+  ipv6_cidr_block="$(get_vpc_cidr "ipv6" "${interface}")"
 
   tailscale up \
-    --accept-dns=false  \
+    --accept-dns=false \
     --accept-routes=false \
     --authkey="${auth_key}" \
     --advertise-routes="${ipv4_cidr_block},${ipv6_cidr_block}" || exit 1
