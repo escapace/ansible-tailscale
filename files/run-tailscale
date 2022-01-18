@@ -4,7 +4,8 @@ set -e
 set -u
 set -o pipefail
 
-readonly SCRIPT_NAME="$(basename "$0")"
+SCRIPT_NAME=
+SCRIPT_NAME="$(basename "$0")"
 
 function print_usage {
   echo
