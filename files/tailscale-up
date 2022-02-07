@@ -25,41 +25,20 @@ function log_info {
   log "INFO" "$message"
 }
 
-function log_warn {
-  local -r message="$1"
-  log "WARN" "$message"
-}
-
 function log_error {
   local -r message="$1"
   log "ERROR" "$message"
 }
 
-function get_object {
-  local -r source="$1"
-  local -r target="$2"
-  local -r user="$3"
-
-  local -r secrets_bucket_name="${TAILSCALE_SECRETS_BUCKET_NAME}"
-
-  log_info "Downloading ${source}"
-
-  aws s3api get-object \
-    --bucket "${secrets_bucket_name}" \
-    --key "${source}" \
-    "${target}" > /dev/null || exit 1
-
-  chown "${user}:${user}" "${target}"
-}
-
 function get_object_value {
   local -r source="$1"
-  local secrets_bucket_name="${TAILSCALE_SECRETS_BUCKET_NAME}"
+  local -r secrets_bucket_name="${TAILSCALE_SECRETS_BUCKET_NAME}"
+  local -r key="${EC2_INSTANCE_REGION}/${source}"
 
-  log_info "Downloading ${source}"
+  log_info "Downloading ${key}"
 
   aws s3 cp --quiet \
-    "s3://${secrets_bucket_name}/${source}" /dev/stdout || exit 1
+    "s3://${secrets_bucket_name}/${key}" /dev/stdout || exit 1
 }
 
 function get_vpc_cidr {
@@ -81,7 +60,7 @@ function run {
   local ipv6_cidr_block
   local interface="eth0"
 
-  auth_key="$(get_object_value "bastion/tailscale-auth-key.txt")"
+  auth_key="$(get_object_value "bastion/tailscale/tailscale-auth-key")"
   ipv4_cidr_block="$(get_vpc_cidr "ipv4" "${interface}")"
   ipv6_cidr_block="$(get_vpc_cidr "ipv6" "${interface}")"
 
