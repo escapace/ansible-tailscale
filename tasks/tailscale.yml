@@ -1,8 +1,11 @@
 ---
 
 - name: install dependencies
-  package:
+  dnf:
     name: "{{ packages }}"
+    state: present
+    allowerasing: true
+
   vars:
     packages:
       - dnf-plugins-core
@@ -42,6 +45,7 @@
 
 - name: enable tailscaled on boot
   service: name=tailscaled enabled=yes
+  when: not tailscale_role_debug|bool
 
 - name: create the tailscale ferm conf files
   template: src=templates/ferm-tailscale.conf.j2 dest=/etc/ferm/ferm.d/1020-tailscale.conf owner=root group=root mode=0600

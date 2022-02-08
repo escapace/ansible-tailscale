@@ -4,3 +4,4 @@
 - name: tailscale daemon-reload
   systemd:
     daemon_reload: true
+  when: not tailscale_role_debug|bool

@@ -3,5 +3,6 @@
   hosts: all
   vars:
     ferm_role_debug: true
+    tailscale_role_debug: true
   roles:
     - role: escapace.tailscale
