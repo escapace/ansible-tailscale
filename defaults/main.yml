@@ -1,2 +1,4 @@
 ---
 # defaults file for escapace.tailscale
+
+tailscale_role_debug: false

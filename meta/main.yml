@@ -18,6 +18,6 @@ galaxy_info:
     - tailscale
 
 dependencies:
+  - { role: escapace.fedora_releases }
   - { role: escapace.ferm }
   - { role: escapace.aws_cli }
-  # - { role: escapace.kresd }
