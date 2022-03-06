@@ -12,7 +12,7 @@
       - curl
       - jq
 
-- name: install fedora repos
+- name: install tailscale repos
   template:
     src: tailscale.repo.j2
     dest: /etc/yum.repos.d/tailscale.repo
