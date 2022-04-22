@@ -1,15 +1,15 @@
 ---
 
 - name: import escapace.aws_cli role
-  import_role:
+  ansible.builtin.import_role:
     name: escapace.aws_cli
 
 - name: import escapace.aws_environment role
-  import_role:
+  ansible.builtin.import_role:
     name: escapace.aws_environment
 
 - name: create tailscale directories
-  file:
+  ansible.builtin.file:
     owner: root
     group: root
     path: "{{ item }}"

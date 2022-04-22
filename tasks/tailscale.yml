@@ -1,11 +1,10 @@
 ---
 
 - name: install dependencies
-  dnf:
+  ansible.builtin.dnf:
     name: "{{ packages }}"
     state: present
     allowerasing: true
-
   vars:
     packages:
       - dnf-plugins-core
@@ -13,18 +12,18 @@
       - jq
 
 - name: install tailscale repos
-  template:
+  ansible.builtin.template:
     src: tailscale.repo.j2
     dest: /etc/yum.repos.d/tailscale.repo
     mode: 0644
 
 - name: install tailscale
-  dnf:
+  ansible.builtin.dnf:
     name: tailscale
     state: present
 
 - name: create directory for systemd drop-ins
-  file:
+  ansible.builtin.file:
     path: /etc/systemd/system/tailscaled.service.d
     owner: root
     group: root
@@ -34,7 +33,7 @@
     - tailscale daemon-reload
 
 - name: systemd drop-in for options
-  template:
+  ansible.builtin.template:
     src:  "tailscale-service-ferm.conf.j2"
     dest: "/etc/systemd/system/tailscaled.service.d/010-ferm.conf"
     owner: root
@@ -44,14 +43,14 @@
     - tailscale daemon-reload
 
 - name: enable tailscaled on boot
-  service: name=tailscaled enabled=yes
+  ansible.builtin.service: name=tailscaled enabled=yes
   when: not tailscale_role_debug|bool
 
 - name: create the tailscale ferm conf files
-  template: src=templates/ferm-tailscale.conf.j2 dest=/etc/ferm/ferm.d/1020-tailscale.conf owner=root group=root mode=0600
+  ansible.builtin.template: src=templates/ferm-tailscale.conf.j2 dest=/etc/ferm/ferm.d/1020-tailscale.conf owner=root group=root mode=0600
 
 - name: create the tailscale ferm var files
-  template: src=templates/ferm-tailscale-variables.conf.j2 dest=/etc/ferm/vars.d/1010-tailscale.conf owner=root group=root mode=0600
+  ansible.builtin.template: src=templates/ferm-tailscale-variables.conf.j2 dest=/etc/ferm/vars.d/1010-tailscale.conf owner=root group=root mode=0600
 
 - include_tasks: provider-ec2.yml
   when: provider is defined and provider == "ec2"
