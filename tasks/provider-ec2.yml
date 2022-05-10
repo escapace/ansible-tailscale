@@ -26,6 +26,8 @@
     mode: '0750'
     owner: root
     group: root
+  tags:
+    - run-tailscale
 
 - name: copy run-tailscale script
   ansible.builtin.copy:
@@ -34,3 +36,5 @@
     mode: '0750'
     owner: root
     group: root
+  tags:
+    - run-tailscale

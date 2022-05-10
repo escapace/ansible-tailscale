@@ -7,6 +7,56 @@ set -o pipefail
 SCRIPT_NAME=
 SCRIPT_NAME="$(basename "$0")"
 
+function wrap {
+ local strings="${1}"
+
+ local length
+ local cols
+ local width
+
+ length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
+ cols="$(tput cols)"
+
+ if [[ $(( (cols - 4) / length )) -ge 2 ]]
+ then
+  if [[ $((cols - length - 4)) -ge 80 ]]
+  then
+    width=80
+  else
+    width=$((cols - length - 4))
+  fi
+
+   echo -e "${strings}" | \
+    fold -s -w "${width}" | \
+    sed -e "/--/! s|^| \||g" | \
+    column -t -s '|' | \
+    sed  's/^/  /'
+ else
+    local lines
+    local line
+    readarray -t lines <<< "${strings}"
+    local option
+    local description
+
+    if [[ "${cols}" -ge 80 ]]
+    then
+      width="78"
+    else
+      width=$((cols - 2))
+    fi
+
+    for line in "${lines[@]}"; do
+      option="${line%%|*}"
+      description=${line#*|}
+
+      echo "${option}"
+      echo
+      echo "${description}" | fold -s -w "${width}" |  sed  's/^/  /'
+      echo
+    done
+ fi
+}
+
 function print_usage {
   echo
   echo "Usage: run-tailscale [OPTIONS]"
@@ -15,7 +65,10 @@ function print_usage {
   echo
   echo "Options:"
   echo
-  echo -e "  --secrets-bucket-name\t\tAWS S3 secrets bucket name."
+  wrap "$(
+    echo -e "--dns|Provide DNS service for tailscale network."
+    echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
+  )"
   echo
 }
 
@@ -65,6 +118,7 @@ function run {
   umask 022
 
   local secrets_bucket_name=""
+  local tailscale_dns="false"
 
   while [[ $# -gt 0 ]]; do
     local key="$1"
@@ -74,6 +128,9 @@ function run {
         assert_not_empty "$key" "$2"
         secrets_bucket_name="$2"
         shift
+        ;;
+      --dns)
+        tailscale_dns=true
         ;;
       --help)
         print_usage
@@ -99,7 +156,8 @@ function run {
   local -r config=$(cat <<EOF
 [Service]
 Environment='TAILSCALE_SECRETS_BUCKET_NAME=${secrets_bucket_name}'
-ExecStartPost=/opt/tailscale/bin/tailscale-up
+Environment='TAILSCALE_DNS=${tailscale_dns}'
+ExecStartPost=retry /opt/tailscale/bin/tailscale-up
 
 EOF
 )

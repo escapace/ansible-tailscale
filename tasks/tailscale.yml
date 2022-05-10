@@ -7,6 +7,7 @@
     allowerasing: true
   vars:
     packages:
+      - retry
       - dnf-plugins-core
       - curl
       - jq
@@ -54,18 +55,5 @@
 
 - include_tasks: provider-ec2.yml
   when: provider is defined and provider == "ec2"
-
-# - name: check if kresd.conf.d exists
-#   ansible.builtin.stat:
-#     path: /etc/knot-resolver/kresd.conf.d/
-#   register: tailscale_kresd_conf_d
-#   changed_when: false
-#
-# - name: tailscale kresd configuration
-#   template:
-#     src: "kresd-view-tailscale.conf.j2"
-#     dest: "/etc/knot-resolver/kresd.conf.d/910-view-tailscale.conf"
-#     owner: root
-#     group: knot-resolver
-#     mode: 0640
-#   when: tailscale_kresd_conf_d.stat.isdir is defined and tailscale_kresd_conf_d.stat.isdir
+  tags:
+    - run-tailscale

@@ -1,5 +1,6 @@
 ---
-# tasks file for escapace.tailscale
 
 - include_tasks: tailscale.yml
   when: ansible_os_family == "RedHat"
+  tags:
+    - run-tailscale

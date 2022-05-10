@@ -18,4 +18,5 @@ galaxy_info:
     - tailscale
 
 dependencies:
+  - { role: escapace.escapace_releases }
   - { role: escapace.ferm }

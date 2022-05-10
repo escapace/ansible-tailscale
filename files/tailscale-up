@@ -13,24 +13,24 @@ set -o allexport
 source "/etc/sysconfig/ec2-environment"
 set +o allexport
 
-function log {
+function log() {
   local -r level="$1"
   local -r message="$2"
   local -r timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-  >&2 echo -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
+  echo >&2 -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
 }
 
-function log_info {
+function log_info() {
   local -r message="$1"
   log "INFO" "$message"
 }
 
-function log_error {
+function log_error() {
   local -r message="$1"
   log "ERROR" "$message"
 }
 
-function get_object_value {
+function get_object_value() {
   local -r source="$1"
   local -r secrets_bucket_name="${TAILSCALE_SECRETS_BUCKET_NAME}"
   local -r key="${EC2_INSTANCE_REGION}/${source}"
@@ -41,7 +41,7 @@ function get_object_value {
     "s3://${secrets_bucket_name}/${key}" /dev/stdout || exit 1
 }
 
-function get_vpc_cidr {
+function get_vpc_cidr() {
   local -r type="${1}"
   local -r interface="${2}"
 
@@ -52,13 +52,29 @@ function get_vpc_cidr {
   echo "${!variable_reference}"
 }
 
-function run {
+function join {
+  local d=${1-} f=${2-}
+
+  if shift 2; then
+    printf %s "$f" "${@/#/$d}"
+  fi
+}
+
+function run() {
   umask 027
 
   local auth_key
   local ipv4_cidr_block
   local ipv6_cidr_block
   local interface="eth0"
+  local tailscale_ip_array
+  local kresd_network_tailscale_lines=()
+
+  local -r kresd_network_tailscale_path="/etc/knot-resolver/kresd.conf.d/410-network-tailscale.conf"
+  local -r kresd_view_tailscale_path="/etc/knot-resolver/kresd.conf.d/910-view-tailscale.conf"
+  local -r ferm_directory_path="/etc/ferm"
+  local -r ferm_tailscale_dns_conf_path="${ferm_directory_path}/ferm.d/1020-tailscale-dns.conf"
+  local -r ferm_tailscale_vars_conf_path="${ferm_directory_path}/vars.d/1020-tailscale-up.conf"
 
   auth_key="$(get_object_value "bastion/tailscale/tailscale-auth-key")"
   ipv4_cidr_block="$(get_vpc_cidr "ipv4" "${interface}")"
@@ -69,10 +85,75 @@ function run {
     --accept-routes=false \
     --authkey="${auth_key}" \
     --advertise-routes="${ipv4_cidr_block},${ipv6_cidr_block}" || exit 1
+
+  if [[ "${TAILSCALE_DNS}" == "true" ]]; then
+    sleep 5
+
+    readarray -t tailscale_ip_array <<< "$(tailscale ip)"
+
+    for tailscale_ip in "${tailscale_ip_array[@]}"; do
+      kresd_network_tailscale_lines+=("net.listen('${tailscale_ip}', 53, { kind = 'dns', freebind = true })")
+      kresd_network_tailscale_lines+=("net.listen('${tailscale_ip}', 853, { kind = 'tls' })")
+    done
+
+    rm -f "${kresd_network_tailscale_path}"
+    for kresd_network_tailscale_line in "${kresd_network_tailscale_lines[@]}"; do
+      echo "${kresd_network_tailscale_line}" >> "${kresd_network_tailscale_path}"
+    done
+
+    chown root:knot-resolver "${kresd_network_tailscale_path}"
+    chmod 640 "${kresd_network_tailscale_path}"
+
+    local -r kresd_view_tailscale=$(
+      cat << EOF
+view:addr('100.64.0.0/10', policy.all(policy.PASS))
+view:addr('fd7a:115c:a1e0::/48', policy.all(policy.PASS))
+
+EOF
+    )
+
+    echo "${kresd_view_tailscale}" > "${kresd_view_tailscale_path}"
+    chown root:knot-resolver "${kresd_view_tailscale_path}"
+    chmod 640 "${kresd_view_tailscale_path}"
+
+    if [[ -d "${ferm_directory_path}" ]]; then
+      local -r ferm_tailscale_vars_conf=$(
+        cat << EOF
+@def \$TAILSCALE_IP = ($(join " " "${tailscale_ip_array[@]}"));
+
+EOF
+      )
+
+      echo -e "$ferm_tailscale_vars_conf" > "$ferm_tailscale_vars_conf_path"
+
+      chown root:root "$ferm_tailscale_vars_conf_path"
+      chmod 600 "$ferm_tailscale_vars_conf_path"
+
+      local -r ferm_tailscale_dns_conf=$(
+        cat << EOF
+domain ip table filter chain INPUT daddr @ipfilter(\$TAILSCALE_IP) saddr \$TAILSCALE_V4_CIDR proto (udp tcp) dport (53 853) ACCEPT;
+domain ip6 table filter chain INPUT daddr @ipfilter(\$TAILSCALE_IP) saddr \$TAILSCALE_V6_CIDR proto (udp tcp) dport (53 853) ACCEPT;
+
+EOF
+      )
+
+      echo -e "$ferm_tailscale_dns_conf" > "$ferm_tailscale_dns_conf_path"
+
+      chown root:root "$ferm_tailscale_dns_conf_path"
+      chmod 600 "$ferm_tailscale_dns_conf_path"
+    fi
+
+    if systemctl is-active 'kresd@*' &> /dev/null; then
+      systemctl restart "kresd@*"
+    fi
+
+    if systemctl is-active ferm &> /dev/null; then
+      systemctl restart ferm
+    fi
+  fi
 }
 
-if [[ -z "${TAILSCALE_SECRETS_BUCKET_NAME}" ]]
-then
+if [[ -z "${TAILSCALE_SECRETS_BUCKET_NAME}" ]]; then
   log_error "TAILSCALE_SECRETS_BUCKET_NAME not set"
 
   exit 1
