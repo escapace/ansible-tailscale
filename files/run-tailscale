@@ -7,39 +7,36 @@ set -o pipefail
 SCRIPT_NAME=
 SCRIPT_NAME="$(basename "$0")"
 
-function wrap {
- local strings="${1}"
+function wrap() {
+  local strings="${1}"
 
- local length
- local cols
- local width
+  local length
+  local cols
+  local width
 
- length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
- cols="$(tput cols)"
+  length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
+  cols="$(tput cols)"
 
- if [[ $(( (cols - 4) / length )) -ge 2 ]]
- then
-  if [[ $((cols - length - 4)) -ge 80 ]]
-  then
-    width=80
+  if [[ $(((cols - 4) / length)) -ge 2 ]]; then
+    if [[ $((cols - length - 4)) -ge 80 ]]; then
+      width=80
+    else
+      width=$((cols - length - 4))
+    fi
+
+    echo -e "${strings}" \
+      | fold -s -w "${width}" \
+      | sed -e "/--/! s|^| \||g" \
+      | column -t -s '|' \
+      | sed 's/^/  /'
   else
-    width=$((cols - length - 4))
-  fi
-
-   echo -e "${strings}" | \
-    fold -s -w "${width}" | \
-    sed -e "/--/! s|^| \||g" | \
-    column -t -s '|' | \
-    sed  's/^/  /'
- else
     local lines
     local line
     readarray -t lines <<< "${strings}"
     local option
     local description
 
-    if [[ "${cols}" -ge 80 ]]
-    then
+    if [[ "${cols}" -ge 80 ]]; then
       width="78"
     else
       width=$((cols - 2))
@@ -51,13 +48,13 @@ function wrap {
 
       echo "${option}"
       echo
-      echo "${description}" | fold -s -w "${width}" |  sed  's/^/  /'
+      echo "${description}" | fold -s -w "${width}" | sed 's/^/  /'
       echo
     done
- fi
+  fi
 }
 
-function print_usage {
+function print_usage() {
   echo
   echo "Usage: run-tailscale [OPTIONS]"
   echo
@@ -66,35 +63,36 @@ function print_usage {
   echo "Options:"
   echo
   wrap "$(
+    echo -e "--role|The instance role, one of \"server\", \"client\" or \"bastion\"."
     echo -e "--dns|Provide DNS service for tailscale network."
     echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
   )"
   echo
 }
 
-function log {
+function log() {
   local -r level="$1"
   local -r message="$2"
   local -r timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-  >&2 echo -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
+  echo >&2 -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
 }
 
-function log_info {
+function log_info() {
   local -r message="$1"
   log "INFO" "$message"
 }
 
-function log_warn {
+function log_warn() {
   local -r message="$1"
   log "WARN" "$message"
 }
 
-function log_error {
+function log_error() {
   local -r message="$1"
   log "ERROR" "$message"
 }
 
-function assert_not_empty {
+function assert_not_empty() {
   local -r arg_name="$1"
   local -r arg_value="$2"
 
@@ -105,7 +103,7 @@ function assert_not_empty {
   fi
 }
 
-function assert_is_installed {
+function assert_is_installed() {
   local -r name="$1"
 
   if [[ ! $(command -v "${name}") ]]; then
@@ -114,16 +112,22 @@ function assert_is_installed {
   fi
 }
 
-function run {
+function run() {
   umask 022
 
   local secrets_bucket_name=""
   local tailscale_dns="false"
+  local role=""
 
   while [[ $# -gt 0 ]]; do
     local key="$1"
 
     case "$key" in
+      --role)
+        assert_not_empty "$key" "$2"
+        role="$2"
+        shift
+        ;;
       --secrets-bucket-name)
         assert_not_empty "$key" "$2"
         secrets_bucket_name="$2"
@@ -147,20 +151,28 @@ function run {
   done
 
   assert_not_empty "--secrets-bucket-name" "$secrets_bucket_name"
+  assert_not_empty "--role" "$role"
+
+  if ! [[ "$role" == "server" || "$role" == "client" || "$role" == "bastion" ]]; then
+    log_error "Unrecognized value for the --role flag."
+    exit 1
+  fi
 
   assert_is_installed "systemctl"
   assert_is_installed "aws"
   assert_is_installed "curl"
   assert_is_installed "jq"
 
-  local -r config=$(cat <<EOF
+  local -r config=$(
+    cat << EOF
 [Service]
 Environment='TAILSCALE_SECRETS_BUCKET_NAME=${secrets_bucket_name}'
 Environment='TAILSCALE_DNS=${tailscale_dns}'
+Environment='TAILSCALE_ROLE=${role}'
 ExecStartPost=retry /opt/tailscale/bin/tailscale-up
 
 EOF
-)
+  )
 
   echo -e "$config" > "/etc/systemd/system/tailscaled.service.d/020-tailscale-up.conf"
 
