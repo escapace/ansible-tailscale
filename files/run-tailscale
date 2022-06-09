@@ -178,7 +178,7 @@ EOF
 
   sudo systemctl daemon-reload
   sudo systemctl enable tailscaled.service
-  sudo systemctl restart tailscaled.service
+  sudo systemctl --no-block restart tailscaled.service
 }
 
 run "$@"
