@@ -1,6 +1,6 @@
 ---
 
-- include_tasks: tailscale.yml
+- ansible.builtin.include_tasks: tailscale.yml
   when: ansible_os_family == "RedHat"
   tags:
     - run-tailscale

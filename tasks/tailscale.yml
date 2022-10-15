@@ -53,7 +53,7 @@
 - name: create the tailscale ferm var files
   ansible.builtin.template: src=templates/ferm-tailscale-variables.conf.j2 dest=/etc/ferm/vars.d/1010-tailscale.conf owner=root group=root mode=0600
 
-- include_tasks: provider-ec2.yml
+- ansible.builtin.include_tasks: provider-ec2.yml
   when: provider is defined and provider == "ec2"
   tags:
     - run-tailscale
