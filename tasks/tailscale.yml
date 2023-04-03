@@ -44,14 +44,26 @@
     - tailscale daemon-reload
 
 - name: enable tailscaled on boot
-  ansible.builtin.service: name=tailscaled enabled=yes
+  ansible.builtin.service:
+    name: tailscaled
+    enabled: true
   when: not tailscale_role_debug|bool
 
 - name: create the tailscale ferm conf files
-  ansible.builtin.template: src=templates/ferm-tailscale.conf.j2 dest=/etc/ferm/ferm.d/1020-tailscale.conf owner=root group=root mode=0600
+  ansible.builtin.template:
+    src: templates/ferm-tailscale.conf.j2
+    dest: /etc/ferm/ferm.d/1020-tailscale.conf
+    owner: root
+    group: root
+    mode: 0600
 
 - name: create the tailscale ferm var files
-  ansible.builtin.template: src=templates/ferm-tailscale-variables.conf.j2 dest=/etc/ferm/vars.d/1010-tailscale.conf owner=root group=root mode=0600
+  ansible.builtin.template:
+    src: templates/ferm-tailscale-variables.conf.j2
+    dest: /etc/ferm/vars.d/1010-tailscale.conf
+    owner: root
+    group: root
+    mode: 0600
 
 - ansible.builtin.include_tasks: provider-ec2.yml
   when: provider is defined and provider == "ec2"
