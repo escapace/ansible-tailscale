@@ -24,8 +24,8 @@ domain ip table nat {
   }
 }
 
-domain ip6 table nat {
-  chain POSTROUTING {
-    saddr $TAILSCALE_V6_CIDR outerface $DEFAULT_V6_DEV MASQUERADE;
-  }
-}
+#domain ip6 table nat {
+#  chain POSTROUTING {
+#    saddr $TAILSCALE_V6_CIDR outerface $DEFAULT_V6_DEV MASQUERADE;
+#  }
+#}
