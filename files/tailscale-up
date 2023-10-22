@@ -76,7 +76,7 @@ function run() {
   local -r ferm_tailscale_dns_conf_path="${ferm_directory_path}/ferm.d/1020-tailscale-dns.conf"
   local -r ferm_tailscale_vars_conf_path="${ferm_directory_path}/vars.d/1020-tailscale-up.conf"
 
-  auth_key="$(get_object_value "${TAILSCALE_ROLE}/tailscale/tailscale-auth-key")"
+  auth_key="$(get_object_value "${TAILSCALE_ROLE}/tailscale/tailscale-client-secret")"
   ipv4_cidr_block="$(get_vpc_cidr "ipv4" "${interface}")"
   ipv6_cidr_block="$(get_vpc_cidr "ipv6" "${interface}")"
 
@@ -84,7 +84,8 @@ function run() {
     --accept-dns=false \
     --accept-routes=false \
     --snat-subnet-routes=true \
-    --authkey="${auth_key}" \
+    --advertise-tags="tag:${TAILSCALE_ROLE}" \
+    --authkey="${auth_key}?preauthorized=true&ephemeral=true" \
     --advertise-routes="${ipv4_cidr_block},${ipv6_cidr_block}" || exit 1
 
   if [[ "${TAILSCALE_DNS}" == "true" ]]; then
