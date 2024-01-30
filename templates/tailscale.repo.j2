@@ -1,8 +1,8 @@
 [tailscale-stable]
 name=Tailscale stable
-baseurl=https://pkgs.tailscale.com/stable/centos/9/$basearch
+baseurl=https://pkgs.tailscale.com/stable/{{ "rhel" if ansible_distribution == "RedHat" else ansible_distribution|lower }}/{{ ansible_distribution_major_version }}/$basearch
 enabled=1
 type=rpm
 repo_gpgcheck=1
 gpgcheck=0
-gpgkey=https://pkgs.tailscale.com/stable/centos/9/repo.gpg
+gpgkey=https://pkgs.tailscale.com/stable/{{ "rhel" if ansible_distribution == "RedHat" else ansible_distribution|lower }}/{{ ansible_distribution_major_version }}/repo.gpg
