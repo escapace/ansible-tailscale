@@ -1,5 +1,4 @@
 ---
-
 - name: import escapace.aws_cli role
   ansible.builtin.import_role:
     name: escapace.aws_cli
@@ -14,16 +13,16 @@
     group: root
     path: "{{ item }}"
     state: directory
-    mode: 0750
+    mode: "0750"
   with_items:
-    - "/opt/tailscale"
-    - "/opt/tailscale/bin"
+    - /opt/tailscale
+    - /opt/tailscale/bin
 
 - name: copy tailscale-up script
   ansible.builtin.copy:
     src: tailscale-up
     dest: /opt/tailscale/bin/tailscale-up
-    mode: '0750'
+    mode: "0750"
     owner: root
     group: root
   tags:
@@ -33,7 +32,7 @@
   ansible.builtin.copy:
     src: run-tailscale
     dest: /opt/tailscale/bin/run-tailscale
-    mode: '0750'
+    mode: "0750"
     owner: root
     group: root
   tags:
