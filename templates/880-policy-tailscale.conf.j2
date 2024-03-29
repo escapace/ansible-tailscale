@@ -1,0 +1,22 @@
+tailscale = policy.todnames(filter_strings({
+  '{{ tailscale_tailnet_name }}.'
+}))
+
+policy.add(policy.suffix(policy.FLAGS({'NO_CACHE', 'NO_EDNS', 'NO_0X20'}), tailscale))
+
+{% raw %}
+policy.add(policy.suffix(policy.STUB({
+{% endraw %}
+{% for item in tailscale_resolvers %}
+{% if kresd_ipv6 and item.address | ansible.utils.ipv6 %}
+{{ '\'' + item.address + '\',' }}
+{% endif %}
+{% endfor %}
+{% for item in tailscale_resolvers %}
+{% if kresd_ipv4 and item.address | ansible.utils.ipv4 %}
+{{ '\'' + item.address + '\',' }}
+{% endif %}
+{% endfor %}
+{% raw %}
+}), tailscale))
+{% endraw %}

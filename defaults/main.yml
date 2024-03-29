@@ -2,3 +2,9 @@
 # defaults file for escapace.tailscale
 
 tailscale_role_debug: false
+# https://tailscale.com/kb/1217/tailnet-name
+tailscale_tailnet_name:
+tailscale_tailnet_dns: false
+tailscale_resolvers:
+  - { address: '100.100.100.100' }
+  - { address: 'fd7a:115c:a1e0::53' }

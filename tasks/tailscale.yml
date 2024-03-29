@@ -68,3 +68,6 @@
   when: provider is defined and provider == "ec2"
   tags:
     - run-tailscale
+
+- ansible.builtin.include_tasks: dns.yml
+  when: tailscale_tailnet_dns and (tailscale_tailnet_name is defined and tailscale_tailnet_name | length > 0) and not (provider is defined and provider == "ec2")
