@@ -51,7 +51,7 @@ wheels = [
 ]
 
 [[package]]
-name = "ansible-roles"
+name = "ansible-tailscale"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [

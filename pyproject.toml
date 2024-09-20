@@ -1,5 +1,5 @@
 [project]
-name = "ansible-roles"
+name = "ansible-tailscale"
 version = "0.0.0"
 dependencies = [
   "ansible==10.4.0",
@@ -10,6 +10,8 @@ dependencies = [
   "passlib==1.7.4",
 ]
 requires-python = "== 3.10"
+
+[tool]
 
 [tool.uv]
 managed = true
