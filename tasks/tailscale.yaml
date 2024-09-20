@@ -1,7 +1,7 @@
 ---
 - name: install dependencies
   ansible.builtin.dnf:
-    name: "{{ packages }}"
+    name: '{{ packages }}'
     state: present
     allowerasing: true
   vars:
@@ -15,7 +15,7 @@
   ansible.builtin.template:
     src: tailscale.repo.j2
     dest: /etc/yum.repos.d/tailscale.repo
-    mode: "0644"
+    mode: '0644'
 
 - name: install tailscale
   ansible.builtin.dnf:
@@ -28,7 +28,7 @@
     owner: root
     group: root
     state: directory
-    mode: "0755"
+    mode: '0755'
   notify:
     - tailscale daemon-reload
 
@@ -38,7 +38,7 @@
     dest: /etc/systemd/system/tailscaled.service.d/010-ferm.conf
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   notify:
     - tailscale daemon-reload
 
@@ -54,7 +54,7 @@
     dest: /etc/ferm/ferm.d/1020-tailscale.conf
     owner: root
     group: root
-    mode: "0600"
+    mode: '0600'
 
 - name: create the tailscale ferm var files
   ansible.builtin.template:
@@ -62,12 +62,12 @@
     dest: /etc/ferm/vars.d/1010-tailscale.conf
     owner: root
     group: root
-    mode: "0600"
+    mode: '0600'
 
-- ansible.builtin.include_tasks: provider-ec2.yml
+- ansible.builtin.include_tasks: provider-ec2.yaml
   when: provider is defined and provider == "ec2"
   tags:
     - run-tailscale
 
-- ansible.builtin.include_tasks: dns.yml
+- ansible.builtin.include_tasks: dns.yaml
   when: tailscale_tailnet_dns and (tailscale_tailnet_name is defined and tailscale_tailnet_name | length > 0) and not (provider is defined and provider == "ec2")

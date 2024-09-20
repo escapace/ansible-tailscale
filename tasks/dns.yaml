@@ -1,5 +1,4 @@
 ---
-
 - name: include escapace.kresd
   ansible.builtin.include_role:
     name: escapace.kresd
@@ -7,11 +6,11 @@
 
 - name: kresd.conf.d files
   ansible.builtin.template:
-    src: "{{ item }}"
+    src: '{{ item }}'
     dest: /etc/knot-resolver/kresd.conf.d/{{ item | basename | regex_replace('.j2$', '') }}
     owner: root
     group: knot-resolver
-    mode: "0640"
+    mode: '0640'
   loop:
     - 880-policy-tailscale.conf.j2
   tags:

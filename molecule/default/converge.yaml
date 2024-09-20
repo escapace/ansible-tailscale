@@ -5,4 +5,4 @@
     ferm_role_debug: true
     tailscale_role_debug: true
   roles:
-    - role: escapace.tailscale
+    - role: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"

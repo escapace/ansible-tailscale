@@ -1,12 +1,11 @@
 ---
-
 - name: assert condition for tailscale_tailnet_dns and tailscale_tailnet_name
   ansible.builtin.assert:
     that:
       - tailscale_tailnet_dns == false or (tailscale_tailnet_name is defined and tailscale_tailnet_name | length > 0)
-    msg: "If tailscale_tailnet_dns is true, then tailscale_tailnet_name must be defined and non-empty."
+    msg: 'If tailscale_tailnet_dns is true, then tailscale_tailnet_name must be defined and non-empty.'
 
-- ansible.builtin.include_tasks: tailscale.yml
+- ansible.builtin.include_tasks: tailscale.yaml
   when: ansible_os_family == "RedHat"
   tags:
     - run-tailscale
