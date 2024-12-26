@@ -11,16 +11,143 @@
       - curl
       - jq
 
-- name: install tailscale repos
-  ansible.builtin.template:
-    src: tailscale.repo.j2
-    dest: /etc/yum.repos.d/tailscale.repo
-    mode: '0644'
+# - name: install tailscale repos
+#   ansible.builtin.template:
+#     src: tailscale.repo.j2
+#     dest: /etc/yum.repos.d/tailscale.repo
+#     mode: '0644'
+#
+# - name: install tailscale
+#   ansible.builtin.dnf:
+#     name: tailscale
+#     state: present
+
+- name: create tailscale directories
+  ansible.builtin.file:
+    owner: root
+    group: root
+    path: '{{ item }}'
+    state: directory
+    mode: '0755'
+  with_items:
+    - /opt/tailscale
+    - /opt/tailscale/bin
+
+- name: check tailscale version
+  ansible.builtin.slurp:
+    src: /opt/tailscale/version
+  register: tailscale_current_vesion
+  changed_when: false
+  ignore_errors: true
 
 - name: install tailscale
-  ansible.builtin.dnf:
-    name: tailscale
-    state: present
+  when: tailscale_current_vesion.failed or tailscale_current_vesion['content'] | b64decode != tailscale_archive
+  block:
+    - name: download tailscale
+      ansible.builtin.get_url:
+        url: '{{ tailscale_url_archive }}'
+        dest: /tmp/{{ tailscale_archive }}
+        checksum: sha256:{{ tailscale_url_archive_checksum }}
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: extract tailscale
+      ansible.builtin.unarchive:
+        src: /tmp/{{ tailscale_archive }}
+        dest: /opt/tailscale/bin
+        mode: '0755'
+        owner: root
+        group: root
+        setype: bin_t
+        seuser: system_u
+        remote_src: true
+        extra_opts: [--strip-components=1]
+
+    - name: cleanup
+      ansible.builtin.file:
+        path: /tmp/{{ tailscale_archive }}
+        state: absent
+
+    - name: delete /opt/tailscale/bin/systemd
+      ansible.builtin.file:
+        path: /opt/tailscale/bin/systemd
+        state: absent
+
+    - name: write version
+      ansible.builtin.copy:
+        content: '{{ tailscale_archive }}'
+        dest: /opt/tailscale/version
+        owner: root
+        group: root
+        mode: '0644'
+
+- name: link /opt/tailscale/bin/tailscale to /usr/bin/tailscale
+  ansible.builtin.file:
+    src: /opt/tailscale/bin/tailscale
+    dest: /usr/bin/tailscale
+    state: link
+
+- name: link /opt/tailscale/bin/tailscaled to /usr/sbin/tailscaled
+  ansible.builtin.file:
+    src: /opt/tailscale/bin/tailscaled
+    dest: /usr/sbin/tailscaled
+    state: link
+
+- name: tailscaled defaults
+  ansible.builtin.copy:
+    content: |
+      # Set the port to listen on for incoming VPN packets.
+      # Remote nodes will automatically be informed about the new port number,
+      # but you might want to configure this in order to set external firewall
+      # settings.
+      PORT="41641"
+
+      # Extra flags you might want to pass to tailscaled.
+      FLAGS=""
+    dest: /etc/default/tailscaled
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - tailscale daemon-reload
+    - tailscale enable
+
+- name: tailscaled.service
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Tailscale node agent
+      Documentation=https://tailscale.com/kb/
+      Wants=network-pre.target
+      After=network-pre.target systemd-networkd.service
+      Wants=nss-lookup.target
+      After=nss-lookup.target
+
+      [Service]
+      EnvironmentFile=/etc/default/tailscaled
+      ExecStart=/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=${PORT} $FLAGS
+      ExecStopPost=/usr/sbin/tailscaled --cleanup
+
+      Restart=on-failure
+
+      RuntimeDirectory=tailscale
+      RuntimeDirectoryMode=0755
+      StateDirectory=tailscale
+      StateDirectoryMode=0700
+      CacheDirectory=tailscale
+      CacheDirectoryMode=0750
+      Type=notify
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/tailscaled.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - tailscale daemon-reload
+    - tailscale enable
 
 - name: create directory for systemd drop-ins
   ansible.builtin.file:
@@ -29,8 +156,6 @@
     group: root
     state: directory
     mode: '0755'
-  notify:
-    - tailscale daemon-reload
 
 - name: systemd drop-in for options
   ansible.builtin.template:
@@ -41,12 +166,7 @@
     mode: '0644'
   notify:
     - tailscale daemon-reload
-
-- name: enable tailscaled on boot
-  ansible.builtin.service:
-    name: tailscaled
-    enabled: true
-  when: not tailscale_role_debug|bool
+    - tailscale enable
 
 - name: create the tailscale ferm conf files
   ansible.builtin.template:

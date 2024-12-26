@@ -9,12 +9,12 @@ policy.add(policy.suffix(policy.STUB({
 {% endraw %}
 {% for item in tailscale_resolvers %}
 {% if kresd_ipv6 and item.address | ansible.utils.ipv6 %}
-{{ '\'' + item.address + '\',' }}
+{{ '\'' + item.address | ansible.utils.ipv6('address') + '\',' }}
 {% endif %}
 {% endfor %}
 {% for item in tailscale_resolvers %}
 {% if kresd_ipv4 and item.address | ansible.utils.ipv4 %}
-{{ '\'' + item.address + '\',' }}
+{{ '\'' + item.address | ansible.utils.ipv4('address') + '\',' }}
 {% endif %}
 {% endfor %}
 {% raw %}

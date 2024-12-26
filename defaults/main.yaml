@@ -1,6 +1,7 @@
 ---
 # defaults file for escapace.tailscale
 
+tailscale_version: 1.78.1
 tailscale_role_debug: false
 # https://tailscale.com/kb/1217/tailnet-name
 tailscale_tailnet_name:

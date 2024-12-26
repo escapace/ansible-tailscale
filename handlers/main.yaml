@@ -5,3 +5,9 @@
   ansible.builtin.systemd:
     daemon_reload: true
   when: not tailscale_role_debug|bool
+
+- name: tailscale enable
+  ansible.builtin.service:
+    name: tailscaled
+    enabled: true
+  when: not tailscale_role_debug|bool
