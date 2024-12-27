@@ -1,15 +1,14 @@
 ---
 - name: install dependencies
   ansible.builtin.dnf:
-    name: '{{ packages }}'
+    name:
+      - curl
+      - dnf-plugins-core
+      - jq
+      - retry
+      - tar
     state: present
     allowerasing: true
-  vars:
-    packages:
-      - retry
-      - dnf-plugins-core
-      - curl
-      - jq
 
 # - name: install tailscale repos
 #   ansible.builtin.template:
