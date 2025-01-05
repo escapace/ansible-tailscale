@@ -22,7 +22,7 @@
   ansible.builtin.copy:
     src: tailscale-up
     dest: /opt/tailscale/bin/tailscale-up
-    mode: '0750'
+    mode: "0750"
     owner: root
     group: root
   tags:
@@ -32,7 +32,7 @@
   ansible.builtin.copy:
     src: run-tailscale
     dest: /opt/tailscale/bin/run-tailscale
-    mode: '0750'
+    mode: "0750"
     owner: root
     group: root
   tags:

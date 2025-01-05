@@ -7,5 +7,5 @@ tailscale_role_debug: false
 tailscale_tailnet_name:
 tailscale_tailnet_dns: false
 tailscale_resolvers:
-  - { address: '100.100.100.100' }
-  - { address: 'fd7a:115c:a1e0::53' }
+  - { address: "100.100.100.100" }
+  - { address: "fd7a:115c:a1e0::53" }

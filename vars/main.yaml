@@ -7,7 +7,7 @@ tailscale_architecture_map:
   aarch64: arm64
   64-bit: amd64
 
-tailscale_architecture: '{{ tailscale_architecture_map[ansible_architecture] }}'
-tailscale_archive: 'tailscale_{{ tailscale_version }}_{{ tailscale_architecture }}.tgz'
-tailscale_url_archive: 'https://pkgs.tailscale.com/stable/{{ tailscale_archive }}'
-tailscale_url_archive_checksum: '{{ tailscale_url_archive }}.sha256'
+tailscale_architecture: "{{ tailscale_architecture_map[ansible_architecture] }}"
+tailscale_archive: "tailscale_{{ tailscale_version }}_{{ tailscale_architecture }}.tgz"
+tailscale_url_archive: "https://pkgs.tailscale.com/stable/{{ tailscale_archive }}"
+tailscale_url_archive_checksum: "{{ tailscale_url_archive }}.sha256"

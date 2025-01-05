@@ -10,7 +10,7 @@
     dest: /etc/knot-resolver/config.d/880-policy-tailscale.lua
     owner: root
     group: knot-resolver
-    mode: '0640'
+    mode: "0640"
   tags:
     - kresd-conf
   notify:
