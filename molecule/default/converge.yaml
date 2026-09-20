@@ -1,8 +1,10 @@
 ---
-- name: Converge
+- name: converge
   hosts: all
-  vars:
-    ferm_role_debug: true
-    tailscale_role_debug: true
+  pre_tasks:
+    - name: install systemd for tailscale role testing
+      ansible.builtin.package:
+        name: systemd
+        state: present
   roles:
     - role: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"

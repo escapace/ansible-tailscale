@@ -2,151 +2,65 @@
 - name: install dependencies
   ansible.builtin.dnf:
     name:
-      - curl
+      - ca-certificates
       - dnf-plugins-core
-      - jq
-      - retry
-      - tar
     state: present
     allowerasing: true
 
-# - name: install tailscale repos
-#   ansible.builtin.template:
-#     src: tailscale.repo.j2
-#     dest: /etc/yum.repos.d/tailscale.repo
-#     mode: '0644'
-#
-# - name: install tailscale
-#   ansible.builtin.dnf:
-#     name: tailscale
-#     state: present
+- name: check tailscale gpg key file
+  ansible.builtin.stat:
+    path: "{{ tailscale_rpm_key_path }}"
+  register: tailscale_rpm_key_file
 
-- name: create tailscale directories
-  ansible.builtin.file:
+- name: download tailscale gpg key
+  ansible.builtin.get_url:
+    url: "{{ tailscale_rpm_key }}"
+    dest: "{{ tailscale_rpm_key_path }}"
     owner: root
     group: root
-    path: "{{ item }}"
-    state: directory
-    mode: "0755"
-  with_items:
-    - /opt/tailscale
-    - /opt/tailscale/bin
+    mode: "0644"
 
-- name: check tailscale version
-  ansible.builtin.slurp:
-    src: /opt/tailscale/version
-  register: tailscale_current_vesion
-  changed_when: false
-  ignore_errors: true
+- name: import tailscale gpg key
+  ansible.builtin.rpm_key:
+    key: "{{ tailscale_rpm_key_path }}"
+    fingerprint: "{{ tailscale_rpm_key_fingerprint }}"
+    state: present
+  when: not ansible_check_mode or tailscale_rpm_key_file.stat.exists
+
+- name: install tailscale repository
+  ansible.builtin.yum_repository:
+    name: tailscale-stable
+    file: tailscale
+    description: Tailscale stable
+    baseurl: "{{ tailscale_repo_baseurl }}"
+    enabled: true
+    gpgcheck: "{{ tailscale_gpgcheck | bool }}"
+    repo_gpgcheck: "{{ tailscale_repo_gpgcheck | bool }}"
+    gpgkey: "file://{{ tailscale_rpm_key_path }}"
 
 - name: install tailscale
-  when: tailscale_current_vesion.failed or tailscale_current_vesion['content'] | b64decode != tailscale_archive
-  block:
-    - name: download tailscale
-      ansible.builtin.get_url:
-        url: "{{ tailscale_url_archive }}"
-        dest: /tmp/{{ tailscale_archive }}
-        checksum: sha256:{{ tailscale_url_archive_checksum }}
-        mode: "0755"
-        owner: root
-        group: root
-
-    - name: extract tailscale
-      ansible.builtin.unarchive:
-        src: /tmp/{{ tailscale_archive }}
-        dest: /opt/tailscale/bin
-        mode: "0755"
-        owner: root
-        group: root
-        setype: bin_t
-        seuser: system_u
-        remote_src: true
-        extra_opts: [--strip-components=1]
-
-    - name: cleanup
-      ansible.builtin.file:
-        path: /tmp/{{ tailscale_archive }}
-        state: absent
-
-    - name: delete /opt/tailscale/bin/systemd
-      ansible.builtin.file:
-        path: /opt/tailscale/bin/systemd
-        state: absent
-
-    - name: write version
-      ansible.builtin.copy:
-        content: "{{ tailscale_archive }}"
-        dest: /opt/tailscale/version
-        owner: root
-        group: root
-        mode: "0644"
-
-- name: link /opt/tailscale/bin/tailscale to /usr/bin/tailscale
-  ansible.builtin.file:
-    src: /opt/tailscale/bin/tailscale
-    dest: /usr/bin/tailscale
-    state: link
-
-- name: link /opt/tailscale/bin/tailscaled to /usr/sbin/tailscaled
-  ansible.builtin.file:
-    src: /opt/tailscale/bin/tailscaled
-    dest: /usr/sbin/tailscaled
-    state: link
-
-- name: tailscaled defaults
-  ansible.builtin.copy:
-    content: |
-      # Set the port to listen on for incoming VPN packets.
-      # Remote nodes will automatically be informed about the new port number,
-      # but you might want to configure this in order to set external firewall
-      # settings.
-      PORT="41641"
-
-      # Extra flags you might want to pass to tailscaled.
-      FLAGS=""
-    dest: /etc/default/tailscaled
-    owner: root
-    group: root
-    mode: "0644"
+  ansible.builtin.dnf:
+    name: "{{ tailscale_package }}"
+    state: "{{ tailscale_package_state }}"
+    update_cache: true
+  when: not ansible_check_mode or tailscale_rpm_key_file.stat.exists
   notify:
-    - tailscale daemon-reload
-    - tailscale enable
+    - tailscale restart tailscaled
 
-- name: tailscaled.service
-  ansible.builtin.copy:
-    content: |
-      [Unit]
-      Description=Tailscale node agent
-      Documentation=https://tailscale.com/kb/
-      Wants=network-pre.target
-      After=network-pre.target systemd-networkd.service
-      Wants=nss-lookup.target
-      After=nss-lookup.target
+- name: enable tailscaled
+  ansible.builtin.systemd_service:
+    name: tailscaled.service
+    enabled: true
 
-      [Service]
-      EnvironmentFile=/etc/default/tailscaled
-      ExecStart=/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=${PORT} $FLAGS
-      ExecStopPost=/usr/sbin/tailscaled --cleanup
+- name: check for ferm rule configuration directory
+  ansible.builtin.stat:
+    path: /etc/ferm/ferm.d
+  register: tailscale_ferm_rule_configuration_directory
 
-      Restart=on-failure
-
-      RuntimeDirectory=tailscale
-      RuntimeDirectoryMode=0755
-      StateDirectory=tailscale
-      StateDirectoryMode=0700
-      CacheDirectory=tailscale
-      CacheDirectoryMode=0750
-      Type=notify
-
-      [Install]
-      WantedBy=multi-user.target
-    dest: /etc/systemd/system/tailscaled.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - tailscale daemon-reload
-    - tailscale enable
+- name: check for ferm variable configuration directory
+  ansible.builtin.stat:
+    path: /etc/ferm/vars.d
+  register: tailscale_ferm_variable_configuration_directory
 
 - name: create directory for systemd drop-ins
   ansible.builtin.file:
@@ -155,38 +69,60 @@
     group: root
     state: directory
     mode: "0755"
+  when:
+    - tailscale_ferm_rule_configuration_directory.stat.isdir | default(false)
+    - tailscale_ferm_variable_configuration_directory.stat.isdir | default(false)
 
-- name: systemd drop-in for options
+- name: configure tailscaled to start after ferm
   ansible.builtin.template:
     src: tailscale-service-ferm.conf.j2
     dest: /etc/systemd/system/tailscaled.service.d/010-ferm.conf
     owner: root
     group: root
     mode: "0644"
+  when:
+    - tailscale_ferm_rule_configuration_directory.stat.isdir | default(false)
+    - tailscale_ferm_variable_configuration_directory.stat.isdir | default(false)
   notify:
     - tailscale daemon-reload
-    - tailscale enable
+    - tailscale restart tailscaled
 
-- name: create the tailscale ferm conf files
+- name: configure tailscale ferm rules
   ansible.builtin.template:
     src: templates/ferm-tailscale.conf.j2
     dest: /etc/ferm/ferm.d/1020-tailscale.conf
     owner: root
     group: root
     mode: "0600"
+  when:
+    - tailscale_ferm_rule_configuration_directory.stat.isdir | default(false)
+    - tailscale_ferm_variable_configuration_directory.stat.isdir | default(false)
+  notify:
+    - tailscale restart ferm
 
-- name: create the tailscale ferm var files
+- name: configure tailscale ferm variables
   ansible.builtin.template:
     src: templates/ferm-tailscale-variables.conf.j2
     dest: /etc/ferm/vars.d/1010-tailscale.conf
     owner: root
     group: root
     mode: "0600"
+  when:
+    - tailscale_ferm_rule_configuration_directory.stat.isdir | default(false)
+    - tailscale_ferm_variable_configuration_directory.stat.isdir | default(false)
+  notify:
+    - tailscale restart ferm
 
-- ansible.builtin.include_tasks: provider-ec2.yaml
+- name: configure tailscale for ec2
+  ansible.builtin.include_tasks: provider-ec2.yaml
   when: provider is defined and provider == "ec2"
   tags:
     - run-tailscale
 
-- ansible.builtin.include_tasks: dns.yaml
-  when: tailscale_tailnet_dns and (tailscale_tailnet_name is defined and tailscale_tailnet_name | length > 0) and not (provider is defined and provider == "ec2")
+- name: configure tailscale dns
+  ansible.builtin.include_tasks: dns.yaml
+  when:
+    - tailscale_tailnet_dns | bool
+    - tailscale_tailnet_name is not none
+    - tailscale_tailnet_name | length > 0
+    - provider is not defined or provider != "ec2"

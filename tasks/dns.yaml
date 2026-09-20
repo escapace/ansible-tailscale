@@ -1,10 +1,5 @@
 ---
-- name: include escapace.kresd
-  ansible.builtin.include_role:
-    name: escapace.kresd
-    public: true
-
-- name: knot-resolver config.d files
+- name: configure the knot resolver tailscale policy
   ansible.builtin.template:
     src: knot-resolver-policy-tailscale.lua.j2
     dest: /etc/knot-resolver/config.d/880-policy-tailscale.lua
@@ -14,4 +9,4 @@
   tags:
     - kresd-conf
   notify:
-    - kresd daemon-reload
+    - tailscale restart knot resolver

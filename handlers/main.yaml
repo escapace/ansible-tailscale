@@ -1,13 +1,43 @@
 ---
-# handlers file for escapace.tailscale
+- name: tailscale gather service facts before runtime changes
+  ansible.builtin.service_facts:
+  listen:
+    - tailscale restart tailscaled
+    - tailscale restart ferm
+    - tailscale restart knot resolver
 
-- name: tailscale daemon-reload
-  ansible.builtin.systemd:
+- name: tailscale reload systemd manager
+  ansible.builtin.systemd_service:
     daemon_reload: true
-  when: not tailscale_role_debug|bool
+  when: ansible_facts.get("service_mgr") == "systemd"
+  listen: tailscale daemon-reload
 
-- name: tailscale enable
-  ansible.builtin.service:
-    name: tailscaled
-    enabled: true
-  when: not tailscale_role_debug|bool
+- name: tailscale restart active tailscaled
+  ansible.builtin.systemd_service:
+    name: tailscaled.service
+    state: restarted
+  when: >-
+    (ansible_facts.services | default({}))
+    .get("tailscaled.service", {})
+    .get("state") == "running"
+  listen: tailscale restart tailscaled
+
+- name: tailscale restart active ferm
+  ansible.builtin.systemd_service:
+    name: ferm.service
+    state: restarted
+  when: >-
+    (ansible_facts.services | default({}))
+    .get("ferm.service", {})
+    .get("state") == "running"
+  listen: tailscale restart ferm
+
+- name: tailscale restart active knot resolver
+  ansible.builtin.systemd_service:
+    name: knot-resolver.service
+    state: restarted
+  when: >-
+    (ansible_facts.services | default({}))
+    .get("knot-resolver.service", {})
+    .get("state") == "running"
+  listen: tailscale restart knot resolver

@@ -1,8 +1,8 @@
 [tailscale-stable]
 name=Tailscale stable
-baseurl=https://pkgs.tailscale.com/stable/{{ "rhel" if ansible_distribution == "RedHat" else "rhel" if ansible_distribution == "Rocky" else ansible_distribution|lower }}/{{ ansible_distribution_major_version }}/$basearch
+baseurl={{ tailscale_repo_baseurl }}
 enabled=1
 type=rpm
-repo_gpgcheck=1
-gpgcheck=0
-gpgkey=https://pkgs.tailscale.com/stable/{{ "rhel" if ansible_distribution == "RedHat" else "rhel" if ansible_distribution == "Rocky" else ansible_distribution|lower }}/{{ ansible_distribution_major_version }}/repo.gpg
+repo_gpgcheck={{ tailscale_repo_gpgcheck | ternary('1', '0') }}
+gpgcheck={{ tailscale_gpgcheck | ternary('1', '0') }}
+gpgkey=file://{{ tailscale_rpm_key_path }}
