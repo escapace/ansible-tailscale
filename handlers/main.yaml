@@ -1,43 +1,80 @@
 ---
-- name: tailscale gather service facts before runtime changes
+- name: tailscale validate assembled firewalld configuration
+  ansible.builtin.command:
+    argv: [firewall-offline-cmd, --system-config=/etc/firewalld, --check-config]
+  register: tailscale_firewalld_validation
+  changed_when: false
+  check_mode: false
+  failed_when: >-
+    tailscale_firewalld_validation.rc != 0 or
+    tailscale_firewalld_validation.stdout | trim | length > 0 or
+    tailscale_firewalld_validation.stderr | trim | length > 0
+  when: not ansible_check_mode
+  listen: tailscale reload firewalld
+
+- name: tailscale gather fresh service facts
   ansible.builtin.service_facts:
   listen:
     - tailscale restart tailscaled
-    - tailscale restart ferm
+    - tailscale reload firewalld
+    - tailscale reload networkd
     - tailscale restart knot resolver
+
+- name: tailscale inspect systemd runtime
+  ansible.builtin.stat:
+    path: /run/systemd/system
+  register: tailscale_systemd_runtime
+  listen: tailscale daemon-reload
 
 - name: tailscale reload systemd manager
   ansible.builtin.systemd_service:
     daemon_reload: true
-  when: ansible_facts.get("service_mgr") == "systemd"
+  when:
+    - not ansible_check_mode
+    - ansible_facts.get("service_mgr") == "systemd"
+    - tailscale_systemd_runtime.stat.isdir | default(false)
   listen: tailscale daemon-reload
+
+- name: tailscale reload active firewalld synchronously
+  ansible.builtin.command:
+    argv: [firewall-cmd, --reload]
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - (ansible_facts.services | default({})).get("firewalld.service", {}).get("state") == "running"
+  listen: tailscale reload firewalld
+
+- name: tailscale reload active systemd-networkd
+  ansible.builtin.command:
+    argv: [networkctl, reload]
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - (ansible_facts.services | default({})).get("systemd-networkd.service", {}).get("state") == "running"
+  listen: tailscale reload networkd
 
 - name: tailscale restart active tailscaled
   ansible.builtin.systemd_service:
     name: tailscaled.service
     state: restarted
-  when: >-
-    (ansible_facts.services | default({}))
-    .get("tailscaled.service", {})
-    .get("state") == "running"
+  when:
+    - not ansible_check_mode
+    - (ansible_facts.services | default({})).get("tailscaled.service", {}).get("state") == "running"
   listen: tailscale restart tailscaled
 
-- name: tailscale restart active ferm
-  ansible.builtin.systemd_service:
-    name: ferm.service
-    state: restarted
-  when: >-
-    (ansible_facts.services | default({}))
-    .get("ferm.service", {})
-    .get("state") == "running"
-  listen: tailscale restart ferm
+- name: tailscale validate knot resolver configuration
+  ansible.builtin.command:
+    argv: [/usr/bin/kresctl, validate, /etc/knot-resolver/config.yaml]
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+  listen: tailscale restart knot resolver
 
 - name: tailscale restart active knot resolver
   ansible.builtin.systemd_service:
     name: knot-resolver.service
     state: restarted
-  when: >-
-    (ansible_facts.services | default({}))
-    .get("knot-resolver.service", {})
-    .get("state") == "running"
+  when:
+    - not ansible_check_mode
+    - (ansible_facts.services | default({})).get("knot-resolver.service", {}).get("state") == "running"
   listen: tailscale restart knot resolver

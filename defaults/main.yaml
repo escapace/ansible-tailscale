@@ -13,9 +13,13 @@ tailscale_repo_baseurl: "https://pkgs.tailscale.com/stable/{{ tailscale_distribu
 # dnf modules do not manage noninteractively.
 tailscale_repo_gpgcheck: false
 tailscale_gpgcheck: true
-# https://tailscale.com/kb/1217/tailnet-name
-tailscale_tailnet_name:
-tailscale_tailnet_dns: false
+tailscale_listen_port: 41641
+tailscale_peer_relay_port: null
+tailscale_peer_relay_static_endpoints: []
+tailscale_host_access: true
+tailscale_accept_dns: true
+tailscale_accept_routes: true
+tailscale_limit_journal_logs: true
 tailscale_resolvers:
   - { address: "100.100.100.100" }
   - { address: "fd7a:115c:a1e0::53" }

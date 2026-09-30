@@ -1,0 +1,13 @@
+{{ {
+  'version': 'alpha0',
+  'locked': false,
+  'acceptDNS': tailscale_accept_dns | bool,
+  'acceptRoutes': tailscale_accept_routes | bool,
+  'netfilterMode': 'on',
+  'noStatefulFiltering': false,
+  'disableSNAT': false,
+  'allowLANWhileUsingExitNode': false,
+  'autoUpdate': {'check': true, 'apply': false}
+} | combine({'relayServerPort': tailscale_peer_relay_port} if tailscale_peer_relay_port is not none else {})
+  | combine({'relayServerStaticEndpoints': tailscale_peer_relay_static_endpoints} if tailscale_peer_relay_static_endpoints | length > 0 else {})
+  | to_nice_json }}

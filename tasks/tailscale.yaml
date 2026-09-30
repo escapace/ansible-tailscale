@@ -1,5 +1,66 @@
 ---
-- name: install dependencies
+- name: require a fixed tailscale listening port
+  ansible.builtin.assert:
+    that:
+      - tailscale_listen_port | string is match('^[1-9][0-9]*$')
+      - tailscale_listen_port | int <= 65535
+    fail_msg: tailscale_listen_port must be an integer from 1 through 65535
+
+- name: require a distinct fixed peer relay port when enabled
+  ansible.builtin.assert:
+    that:
+      - >-
+        tailscale_peer_relay_port is none or
+        (tailscale_peer_relay_port is integer and
+         tailscale_peer_relay_port is not boolean and
+         tailscale_peer_relay_port >= 1 and
+         tailscale_peer_relay_port <= 65535 and
+         tailscale_peer_relay_port != (tailscale_listen_port | int))
+    fail_msg: tailscale_peer_relay_port must be null or a fixed integer port from 1 through 65535 distinct from tailscale_listen_port
+
+- name: require peer relay static endpoints only with a relay port
+  ansible.builtin.assert:
+    that:
+      - tailscale_peer_relay_static_endpoints is sequence
+      - tailscale_peer_relay_static_endpoints is not string
+      - tailscale_peer_relay_static_endpoints is not mapping
+      - tailscale_peer_relay_static_endpoints | length == tailscale_peer_relay_static_endpoints | unique | length
+      - tailscale_peer_relay_port is not none or tailscale_peer_relay_static_endpoints | length == 0
+    fail_msg: tailscale_peer_relay_static_endpoints must be a unique list, empty when the relay port is disabled
+
+- name: require literal peer relay static endpoints with nonzero ports
+  ansible.builtin.assert:
+    that:
+      - >-
+        item is string and
+        item is match('^([0-9.]+|\\[[0-9A-Fa-f:]+\\]):[1-9][0-9]{0,4}$') and
+        (item.rsplit(':', 1)[0].strip('[]') | ansible.utils.ipaddr('address')) is not false and
+        (item.rsplit(':', 1)[1] | int) <= 65535
+    fail_msg: tailscale_peer_relay_static_endpoints entries must be literal IPv4:port or [IPv6]:port with a port from 1 through 65535
+  loop: "{{ tailscale_peer_relay_static_endpoints if tailscale_peer_relay_static_endpoints is sequence and tailscale_peer_relay_static_endpoints is not string else [] }}"
+
+- name: require a boolean or a list of tailscale host access ports
+  ansible.builtin.assert:
+    that:
+      - tailscale_host_access is boolean or (tailscale_host_access is sequence and tailscale_host_access is not string and tailscale_host_access is not mapping)
+    fail_msg: tailscale_host_access must be true, false, or a list of ports such as 22/tcp
+
+- name: reject duplicate tailscale host access ports
+  ansible.builtin.assert:
+    that: tailscale_host_access | unique | length == tailscale_host_access | length
+    fail_msg: tailscale_host_access contains a duplicate port
+  when: tailscale_host_access is not boolean
+
+- name: require valid tailscale host access port entries
+  ansible.builtin.assert:
+    that:
+      - item is string
+      - item is match('^[1-9][0-9]{0,4}/(tcp|udp)$')
+      - item.split('/')[0] | int <= 65535
+    fail_msg: tailscale_host_access entries must be TCP or UDP ports from 1 through 65535, for example 22/tcp
+  loop: "{{ [] if tailscale_host_access is boolean else tailscale_host_access }}"
+
+- name: install tailscale dependencies
   ansible.builtin.dnf:
     name:
       - ca-certificates
@@ -44,7 +105,102 @@
     state: "{{ tailscale_package_state }}"
     update_cache: true
   when: not ansible_check_mode or tailscale_rpm_key_file.stat.exists
+  notify: tailscale restart tailscaled
+
+- name: check peer relay compatible tailscale version
+  ansible.builtin.command:
+    argv: [tailscale, version]
+  register: tailscale_peer_relay_version
+  changed_when: false
+  when:
+    - tailscale_peer_relay_port is not none
+    - not ansible_check_mode
+
+- name: require tested peer relay config file support
+  ansible.builtin.assert:
+    that: tailscale_peer_relay_version.stdout_lines[0] is version('1.102.2', '>=')
+    fail_msg: peer relay config file fields require a tested tailscale version of at least 1.102.2
+  when:
+    - tailscale_peer_relay_port is not none
+    - not ansible_check_mode
+
+- name: check packaged tailscale environment
+  ansible.builtin.slurp:
+    src: /etc/default/tailscaled
+  register: tailscale_packaged_environment
+  when: not ansible_check_mode
+
+- name: require unmodified packaged tailscale flags
+  ansible.builtin.assert:
+    that:
+      - (tailscale_packaged_environment.content | b64decode | regex_search('(?m)^FLAGS=""$')) is not none
+    fail_msg: the packaged tailscaled FLAGS are not empty; refusing to override existing daemon flags
+  when: not ansible_check_mode
+
+- name: create tailscale configuration directory
+  ansible.builtin.file:
+    path: /etc/tailscale
+    owner: root
+    group: root
+    mode: "0755"
+    state: directory
+
+- name: configure tailscale daemon
+  ansible.builtin.template:
+    src: tailscaled.json.j2
+    dest: /etc/tailscale/tailscaled.json
+    owner: root
+    group: root
+    mode: "0644"
+  notify: tailscale restart tailscaled
+
+- name: configure tailscale daemon environment
+  ansible.builtin.template:
+    src: tailscaled.env.j2
+    dest: /etc/tailscale/ansible.env
+    owner: root
+    group: root
+    mode: "0644"
+  notify: tailscale restart tailscaled
+
+- name: create tailscaled systemd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/tailscaled.service.d
+    owner: root
+    group: root
+    state: directory
+    mode: "0755"
+
+- name: configure tailscaled environment file
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/tailscaled.service.d/10-ansible-environment.conf
+    content: "[Service]\nEnvironmentFile=/etc/tailscale/ansible.env\n"
+    owner: root
+    group: root
+    mode: "0644"
   notify:
+    - tailscale daemon-reload
+    - tailscale restart tailscaled
+
+- name: limit tailscaled journal messages
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/tailscaled.service.d/20-ansible-journal.conf
+    content: "[Service]\nLogLevelMax=notice\n"
+    owner: root
+    group: root
+    mode: "0644"
+  when: tailscale_limit_journal_logs | bool
+  notify:
+    - tailscale daemon-reload
+    - tailscale restart tailscaled
+
+- name: restore default tailscaled journal messages
+  ansible.builtin.file:
+    path: /etc/systemd/system/tailscaled.service.d/20-ansible-journal.conf
+    state: absent
+  when: not (tailscale_limit_journal_logs | bool)
+  notify:
+    - tailscale daemon-reload
     - tailscale restart tailscaled
 
 - name: enable tailscaled
@@ -52,77 +208,109 @@
     name: tailscaled.service
     enabled: true
 
-- name: check for ferm rule configuration directory
+- name: check for systemd-networkd configuration directory
   ansible.builtin.stat:
-    path: /etc/ferm/ferm.d
-  register: tailscale_ferm_rule_configuration_directory
+    path: /etc/systemd/network
+  register: tailscale_networkd_configuration_directory
 
-- name: check for ferm variable configuration directory
-  ansible.builtin.stat:
-    path: /etc/ferm/vars.d
-  register: tailscale_ferm_variable_configuration_directory
-
-- name: create directory for systemd drop-ins
-  ansible.builtin.file:
-    path: /etc/systemd/system/tailscaled.service.d
+- name: keep tailscale0 unmanaged by systemd-networkd
+  ansible.builtin.copy:
+    dest: /etc/systemd/network/00-tailscale0.network
+    content: "[Match]\nName=tailscale0\n\n[Link]\nUnmanaged=yes\n"
     owner: root
     group: root
-    state: directory
-    mode: "0755"
-  when:
-    - tailscale_ferm_rule_configuration_directory.stat.isdir | default(false)
-    - tailscale_ferm_variable_configuration_directory.stat.isdir | default(false)
+    mode: "0644"
+  when: tailscale_networkd_configuration_directory.stat.isdir | default(false)
+  notify: tailscale reload networkd
 
-- name: configure tailscaled to start after ferm
+- name: check for firewalld policy directory
+  ansible.builtin.stat:
+    path: /etc/firewalld/policies
+  register: tailscale_firewalld_policy_directory
+
+- name: check for firewalld zone directory
+  ansible.builtin.stat:
+    path: /etc/firewalld/zones
+  register: tailscale_firewalld_zone_directory
+  when: tailscale_firewalld_policy_directory.stat.isdir | default(false)
+
+- name: check installed firewalld validator
+  ansible.builtin.stat:
+    path: /usr/bin/firewall-offline-cmd
+  register: tailscale_firewalld_validator
+  when: tailscale_firewalld_policy_directory.stat.isdir | default(false)
+
+- name: require complete firewalld integration
+  ansible.builtin.assert:
+    that:
+      - tailscale_firewalld_zone_directory.stat.isdir | default(false)
+      - tailscale_firewalld_validator.stat.executable | default(false)
+    fail_msg: the firewalld policy directory exists but the zone directory or offline validator is unavailable
+  when:
+    - not ansible_check_mode
+    - tailscale_firewalld_policy_directory.stat.isdir | default(false)
+
+- name: configure tailscale firewalld zone
   ansible.builtin.template:
-    src: tailscale-service-ferm.conf.j2
-    dest: /etc/systemd/system/tailscaled.service.d/010-ferm.conf
+    src: tailscale-zone.xml.j2
+    dest: /etc/firewalld/zones/tailscale.xml
+    owner: root
+    group: root
+    mode: "0644"
+  when: tailscale_firewalld_policy_directory.stat.isdir | default(false)
+  notify: tailscale reload firewalld
+
+- name: configure tailscale direct connection policy
+  ansible.builtin.template:
+    src: tailscale-direct.xml.j2
+    dest: /etc/firewalld/policies/tailscale-direct.xml
+    owner: root
+    group: root
+    mode: "0644"
+  when: tailscale_firewalld_policy_directory.stat.isdir | default(false)
+  notify: tailscale reload firewalld
+
+- name: configure tailscale peer relay policy
+  ansible.builtin.template:
+    src: tailscale-relay.xml.j2
+    dest: /etc/firewalld/policies/tailscale-relay.xml
     owner: root
     group: root
     mode: "0644"
   when:
-    - tailscale_ferm_rule_configuration_directory.stat.isdir | default(false)
-    - tailscale_ferm_variable_configuration_directory.stat.isdir | default(false)
-  notify:
-    - tailscale daemon-reload
-    - tailscale restart tailscaled
+    - tailscale_firewalld_policy_directory.stat.isdir | default(false)
+    - tailscale_peer_relay_port is not none
+  notify: tailscale reload firewalld
 
-- name: configure tailscale ferm rules
+- name: remove tailscale peer relay policy when disabled
+  ansible.builtin.file:
+    path: /etc/firewalld/policies/tailscale-relay.xml
+    state: absent
+  when:
+    - tailscale_firewalld_policy_directory.stat.isdir | default(false)
+    - tailscale_peer_relay_port is none
+  notify: tailscale reload firewalld
+
+- name: configure tailscale host access policy
   ansible.builtin.template:
-    src: templates/ferm-tailscale.conf.j2
-    dest: /etc/ferm/ferm.d/1020-tailscale.conf
+    src: tailscale-host.xml.j2
+    dest: /etc/firewalld/policies/tailscale-host.xml
     owner: root
     group: root
-    mode: "0600"
+    mode: "0644"
   when:
-    - tailscale_ferm_rule_configuration_directory.stat.isdir | default(false)
-    - tailscale_ferm_variable_configuration_directory.stat.isdir | default(false)
-  notify:
-    - tailscale restart ferm
+    - tailscale_firewalld_policy_directory.stat.isdir | default(false)
+    - tailscale_host_access is true or (tailscale_host_access is sequence and tailscale_host_access | length > 0)
+  notify: tailscale reload firewalld
 
-- name: configure tailscale ferm variables
-  ansible.builtin.template:
-    src: templates/ferm-tailscale-variables.conf.j2
-    dest: /etc/ferm/vars.d/1010-tailscale.conf
-    owner: root
-    group: root
-    mode: "0600"
+- name: remove tailscale host access policy when no ports are granted
+  ansible.builtin.file:
+    path: /etc/firewalld/policies/tailscale-host.xml
+    state: absent
   when:
-    - tailscale_ferm_rule_configuration_directory.stat.isdir | default(false)
-    - tailscale_ferm_variable_configuration_directory.stat.isdir | default(false)
-  notify:
-    - tailscale restart ferm
+    - tailscale_firewalld_policy_directory.stat.isdir | default(false)
+    - tailscale_host_access is false or (tailscale_host_access is sequence and tailscale_host_access | length == 0)
+  notify: tailscale reload firewalld
 
-- name: configure tailscale for ec2
-  ansible.builtin.include_tasks: provider-ec2.yaml
-  when: provider is defined and provider == "ec2"
-  tags:
-    - run-tailscale
-
-- name: configure tailscale dns
+- name: configure optional knot resolver integration
   ansible.builtin.include_tasks: dns.yaml
-  when:
-    - tailscale_tailnet_dns | bool
-    - tailscale_tailnet_name is not none
-    - tailscale_tailnet_name | length > 0
-    - provider is not defined or provider != "ec2"

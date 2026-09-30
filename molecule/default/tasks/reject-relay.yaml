@@ -1,0 +1,17 @@
+---
+- name: reject invalid peer relay configuration
+  block:
+    - name: try invalid peer relay configuration
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+      vars:
+        tailscale_peer_relay_port: "{{ tailscale_invalid_relay_case.port }}"
+        tailscale_peer_relay_static_endpoints: "{{ tailscale_invalid_relay_case.endpoints }}"
+
+    - name: fail if invalid peer relay configuration was accepted
+      ansible.builtin.fail:
+        msg: peer relay accepted invalid input
+  rescue:
+    - name: verify peer relay validation failed
+      ansible.builtin.assert:
+        that: tailscale_invalid_relay_case.error in (ansible_failed_result | to_json)

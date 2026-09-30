@@ -1,4 +1,65 @@
 ---
+- name: check for knot resolver drop-in directory
+  ansible.builtin.stat:
+    path: /etc/knot-resolver/config.d
+  register: tailscale_knot_drop_in_directory
+
+- name: check knot resolver configuration
+  ansible.builtin.stat:
+    path: /etc/knot-resolver/config.yaml
+  register: tailscale_knot_configuration
+  when:
+    - tailscale_accept_dns | bool
+    - tailscale_knot_drop_in_directory.stat.isdir | default(false)
+
+- name: check installed lua compiler
+  ansible.builtin.stat:
+    path: /usr/bin/luajit
+  register: tailscale_knot_lua_compiler
+  when:
+    - tailscale_accept_dns | bool
+    - tailscale_knot_drop_in_directory.stat.isdir | default(false)
+
+- name: check installed knot resolver validator
+  ansible.builtin.stat:
+    path: /usr/bin/kresctl
+  register: tailscale_knot_validator
+  when:
+    - tailscale_accept_dns | bool
+    - tailscale_knot_drop_in_directory.stat.isdir | default(false)
+
+- name: require a complete knot resolver installation
+  ansible.builtin.assert:
+    that:
+      - tailscale_knot_configuration.stat.isreg | default(false)
+      - tailscale_knot_lua_compiler.stat.executable | default(false)
+      - tailscale_knot_validator.stat.executable | default(false)
+    fail_msg: knot resolver drop-in directory exists but its configuration or validators are unavailable
+  when:
+    - tailscale_accept_dns | bool
+    - tailscale_knot_drop_in_directory.stat.isdir | default(false)
+
+- name: require usable tailscale dns resolvers
+  ansible.builtin.assert:
+    that:
+      - tailscale_resolvers is sequence
+      - tailscale_resolvers is not string
+      - tailscale_resolvers | length > 0
+      - tailscale_resolvers | length <= 4
+    fail_msg: tailscale_resolvers must contain one to four ip address mappings
+  when:
+    - tailscale_accept_dns | bool
+    - tailscale_knot_drop_in_directory.stat.isdir | default(false)
+
+- name: require literal tailscale dns resolver addresses
+  ansible.builtin.assert:
+    that:
+      - item.address is string
+      - item.address is match('^[0-9A-Fa-f:.]+$')
+      - (item.address | ansible.utils.ipaddr('address')) is not false
+    fail_msg: tailscale_resolvers entries must contain literal ipv4 or ipv6 addresses
+  loop: "{{ tailscale_resolvers if tailscale_accept_dns | bool and tailscale_knot_drop_in_directory.stat.isdir | default(false) else [] }}"
+
 - name: configure the knot resolver tailscale policy
   ansible.builtin.template:
     src: knot-resolver-policy-tailscale.lua.j2
@@ -6,7 +67,17 @@
     owner: root
     group: knot-resolver
     mode: "0640"
-  tags:
-    - kresd-conf
-  notify:
-    - tailscale restart knot resolver
+    validate: /usr/bin/luajit -b %s /dev/null
+  when:
+    - tailscale_accept_dns | bool
+    - tailscale_knot_drop_in_directory.stat.isdir | default(false)
+  notify: tailscale restart knot resolver
+
+- name: remove the knot resolver tailscale policy when dns is not accepted
+  ansible.builtin.file:
+    path: /etc/knot-resolver/config.d/880-policy-tailscale.lua
+    state: absent
+  when:
+    - not (tailscale_accept_dns | bool)
+    - tailscale_knot_drop_in_directory.stat.isdir | default(false)
+  notify: tailscale restart knot resolver

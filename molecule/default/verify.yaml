@@ -1,0 +1,339 @@
+---
+- name: verify tailscale image state
+  hosts: all
+  tasks:
+    - name: read daemon configuration
+      ansible.builtin.slurp:
+        src: /etc/tailscale/tailscaled.json
+      register: tailscale_config_file
+
+    - name: read daemon environment
+      ansible.builtin.slurp:
+        src: /etc/tailscale/ansible.env
+      register: tailscale_environment_file
+
+    - name: read firewalld direct policy
+      ansible.builtin.slurp:
+        src: /etc/firewalld/policies/tailscale-direct.xml
+      register: tailscale_direct_policy
+
+    - name: read firewalld host policy
+      ansible.builtin.slurp:
+        src: /etc/firewalld/policies/tailscale-host.xml
+      register: tailscale_host_policy
+
+    - name: inspect default peer relay policy
+      ansible.builtin.stat:
+        path: /etc/firewalld/policies/tailscale-relay.xml
+      register: tailscale_default_relay_policy
+
+    - name: read firewalld zone
+      ansible.builtin.slurp:
+        src: /etc/firewalld/zones/tailscale.xml
+      register: tailscale_zone
+
+    - name: read networkd ownership configuration
+      ansible.builtin.slurp:
+        src: /etc/systemd/network/00-tailscale0.network
+      register: tailscale_networkd_file
+
+    - name: read journal override
+      ansible.builtin.slurp:
+        src: /etc/systemd/system/tailscaled.service.d/20-ansible-journal.conf
+      register: tailscale_journal_file
+
+    - name: verify default daemon and integration settings
+      ansible.builtin.assert:
+        that:
+          - (tailscale_config_file.content | b64decode | from_json).version == 'alpha0'
+          - (tailscale_config_file.content | b64decode | from_json).locked == false
+          - (tailscale_config_file.content | b64decode | from_json).acceptDNS == true
+          - (tailscale_config_file.content | b64decode | from_json).acceptRoutes == true
+          - (tailscale_config_file.content | b64decode | from_json).netfilterMode == 'on'
+          - "'relayServerPort' not in (tailscale_config_file.content | b64decode | from_json)"
+          - "'relayServerStaticEndpoints' not in (tailscale_config_file.content | b64decode | from_json)"
+          - not tailscale_default_relay_policy.stat.exists
+          - (tailscale_config_file.content | b64decode | from_json).noStatefulFiltering == false
+          - (tailscale_config_file.content | b64decode | from_json).disableSNAT == false
+          - (tailscale_config_file.content | b64decode | from_json).allowLANWhileUsingExitNode == false
+          - "(tailscale_config_file.content | b64decode | from_json).autoUpdate == {'check': true, 'apply': false}"
+          - '''PORT="41641"'' in (tailscale_environment_file.content | b64decode)'
+          - '''FLAGS="--config=/etc/tailscale/tailscaled.json"'' in (tailscale_environment_file.content | b64decode)'
+          - "'TS_DEBUG_FIREWALL_MODE=nftables' in (tailscale_environment_file.content | b64decode)"
+          - "'TS_NO_LOGS_NO_SUPPORT=true' in (tailscale_environment_file.content | b64decode)"
+          - '''<port port="41641" protocol="udp"/>'' in (tailscale_direct_policy.content | b64decode)'
+          - '''<ingress-zone name="ANY"/>'' in (tailscale_direct_policy.content | b64decode)'
+          - '''<egress-zone name="HOST"/>'' in (tailscale_direct_policy.content | b64decode)'
+          - '''<policy target="ACCEPT" priority="-1">'' in (tailscale_host_policy.content | b64decode)'
+          - '''<ingress-zone name="tailscale"/>'' in (tailscale_host_policy.content | b64decode)'
+          - '''<zone target="DROP">'' in (tailscale_zone.content | b64decode)'
+          - '''<interface name="tailscale0"/>'' in (tailscale_zone.content | b64decode)'
+          - "'Name=tailscale0' in (tailscale_networkd_file.content | b64decode)"
+          - "'Unmanaged=yes' in (tailscale_networkd_file.content | b64decode)"
+          - "'LogLevelMax=notice' in (tailscale_journal_file.content | b64decode)"
+
+    - name: check tailscaled boot policy
+      ansible.builtin.command:
+        argv: [systemctl, is-enabled, tailscaled.service]
+      register: tailscale_enabled
+      changed_when: false
+
+    - name: verify tailscaled enabled
+      ansible.builtin.assert:
+        that: tailscale_enabled.stdout == 'enabled'
+
+    - name: verify optional knot resolver integration
+      ansible.builtin.include_tasks: tasks/knot.yaml
+
+    - name: reject an invalid listening port before changing configuration
+      block:
+        - name: try configuring a zero listening port
+          ansible.builtin.include_role:
+            name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+          vars:
+            tailscale_listen_port: 0
+
+        - name: fail if zero listening port was accepted
+          ansible.builtin.fail:
+            msg: tailscale accepted an invalid listening port
+      rescue:
+        - name: verify the listening port validation failed
+          ansible.builtin.assert:
+            that: "'tailscale_listen_port must be an integer' in ansible_failed_result.msg"
+
+    - name: reject an out-of-range host access port
+      block:
+        - name: try configuring an invalid host access port
+          ansible.builtin.include_role:
+            name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+          vars:
+            tailscale_host_access: ["65536/tcp"]
+
+        - name: fail if the invalid host access port was accepted
+          ansible.builtin.fail:
+            msg: tailscale accepted an invalid host access port
+      rescue:
+        - name: verify host access port validation failed
+          ansible.builtin.assert:
+            that:
+              - "'tailscale_host_access entries must be TCP or UDP ports' in (ansible_failed_result | to_json)"
+              - "'65536/tcp' in (ansible_failed_result | to_json)"
+
+    - name: reject invalid peer relay settings
+      ansible.builtin.include_tasks: tasks/reject-relay.yaml
+      loop:
+        - { port: 0, endpoints: [], error: tailscale_peer_relay_port }
+        - { port: 41641, endpoints: [], error: tailscale_peer_relay_port }
+        - {
+            port: null,
+            endpoints: ["203.0.113.10:45000"],
+            error: tailscale_peer_relay_static_endpoints,
+          }
+        - {
+            port: 40000,
+            endpoints: ["relay.example:45000"],
+            error: tailscale_peer_relay_static_endpoints,
+          }
+        - {
+            port: 40000,
+            endpoints: ["[2001:db8::1]:65536"],
+            error: tailscale_peer_relay_static_endpoints,
+          }
+        - {
+            port: 40000,
+            endpoints: ["203.0.113.10:45000", "203.0.113.10:45000"],
+            error: tailscale_peer_relay_static_endpoints,
+          }
+      loop_control:
+        loop_var: tailscale_invalid_relay_case
+
+    - name: run role with alternate configuration
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+      vars:
+        tailscale_accept_dns: false
+        tailscale_accept_routes: false
+        tailscale_listen_port: 41642
+        tailscale_peer_relay_port: 40000
+        tailscale_peer_relay_static_endpoints: ["203.0.113.10:45000", "[2001:db8::1]:45000"]
+        tailscale_limit_journal_logs: false
+        tailscale_host_access: ["22/tcp", "5353/udp"]
+
+    - name: read alternate daemon configuration
+      ansible.builtin.slurp:
+        src: /etc/tailscale/tailscaled.json
+      register: tailscale_alternate_config
+
+    - name: read alternate environment
+      ansible.builtin.slurp:
+        src: /etc/tailscale/ansible.env
+      register: tailscale_alternate_environment
+
+    - name: read alternate direct policy
+      ansible.builtin.slurp:
+        src: /etc/firewalld/policies/tailscale-direct.xml
+      register: tailscale_alternate_policy
+
+    - name: read alternate peer relay policy
+      ansible.builtin.slurp:
+        src: /etc/firewalld/policies/tailscale-relay.xml
+      register: tailscale_alternate_relay_policy
+
+    - name: read alternate host access policy
+      ansible.builtin.slurp:
+        src: /etc/firewalld/policies/tailscale-host.xml
+      register: tailscale_alternate_host_policy
+
+    - name: inspect journal override after disabling limit
+      ansible.builtin.stat:
+        path: /etc/systemd/system/tailscaled.service.d/20-ansible-journal.conf
+      register: tailscale_journal_without_limit
+
+    - name: verify alternate settings and removed journal override
+      ansible.builtin.assert:
+        that:
+          - (tailscale_alternate_config.content | b64decode | from_json).acceptDNS == false
+          - (tailscale_alternate_config.content | b64decode | from_json).acceptRoutes == false
+          - (tailscale_alternate_config.content | b64decode | from_json).relayServerPort == 40000
+          - "(tailscale_alternate_config.content | b64decode | from_json).relayServerStaticEndpoints == ['203.0.113.10:45000', '[2001:db8::1]:45000']"
+          - '''<port port="40000" protocol="udp"/>'' in (tailscale_alternate_relay_policy.content | b64decode)'
+          - '''<ingress-zone name="ANY"/>'' in (tailscale_alternate_relay_policy.content | b64decode)'
+          - '''<egress-zone name="HOST"/>'' in (tailscale_alternate_relay_policy.content | b64decode)'
+          - '''PORT="41642"'' in (tailscale_alternate_environment.content | b64decode)'
+          - '''<port port="41642" protocol="udp"/>'' in (tailscale_alternate_policy.content | b64decode)'
+          - '''<policy target="CONTINUE" priority="-1">'' in (tailscale_alternate_host_policy.content | b64decode)'
+          - '''<port port="22" protocol="tcp"/>'' in (tailscale_alternate_host_policy.content | b64decode)'
+          - '''<port port="5353" protocol="udp"/>'' in (tailscale_alternate_host_policy.content | b64decode)'
+          - not tailscale_journal_without_limit.stat.exists
+
+    - name: validate assembled firewalld configuration with peer relay enabled
+      ansible.builtin.command:
+        argv: [firewall-offline-cmd, --system-config=/etc/firewalld, --check-config]
+      register: tailscale_relay_firewalld_validation
+      changed_when: false
+      failed_when: >-
+        tailscale_relay_firewalld_validation.rc != 0 or
+        tailscale_relay_firewalld_validation.stdout | trim | length > 0 or
+        tailscale_relay_firewalld_validation.stderr | trim | length > 0
+
+    - name: omit peer relay static endpoints while keeping the relay enabled
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+      vars:
+        tailscale_peer_relay_port: 40000
+
+    - name: read daemon configuration without static endpoints
+      ansible.builtin.slurp:
+        src: /etc/tailscale/tailscaled.json
+      register: tailscale_relay_without_static_endpoints
+
+    - name: verify relay remains enabled without static endpoints
+      ansible.builtin.assert:
+        that:
+          - (tailscale_relay_without_static_endpoints.content | b64decode | from_json).relayServerPort == 40000
+          - "'relayServerStaticEndpoints' not in (tailscale_relay_without_static_endpoints.content | b64decode | from_json)"
+
+    - name: disable tailscale host access with false
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+      vars:
+        tailscale_accept_dns: false
+        tailscale_accept_routes: false
+        tailscale_listen_port: 41642
+        tailscale_limit_journal_logs: false
+        tailscale_host_access: false
+
+    - name: inspect host access policy after false
+      ansible.builtin.stat:
+        path: /etc/firewalld/policies/tailscale-host.xml
+      register: tailscale_host_policy_without_ports
+
+    - name: inspect peer relay policy after returning to defaults
+      ansible.builtin.stat:
+        path: /etc/firewalld/policies/tailscale-relay.xml
+      register: tailscale_relay_policy_disabled
+
+    - name: read daemon configuration after disabling relay
+      ansible.builtin.slurp:
+        src: /etc/tailscale/tailscaled.json
+      register: tailscale_relay_config_disabled
+
+    - name: inspect direct connection policy after false
+      ansible.builtin.stat:
+        path: /etc/firewalld/policies/tailscale-direct.xml
+      register: tailscale_direct_policy_without_host_access
+
+    - name: verify false removed only host access policy
+      ansible.builtin.assert:
+        that:
+          - not tailscale_host_policy_without_ports.stat.exists
+          - tailscale_direct_policy_without_host_access.stat.exists
+          - not tailscale_relay_policy_disabled.stat.exists
+          - "'relayServerPort' not in (tailscale_relay_config_disabled.content | b64decode | from_json)"
+          - "'relayServerStaticEndpoints' not in (tailscale_relay_config_disabled.content | b64decode | from_json)"
+
+    - name: keep host access disabled with an empty list
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+      vars:
+        tailscale_accept_dns: false
+        tailscale_accept_routes: false
+        tailscale_listen_port: 41642
+        tailscale_limit_journal_logs: false
+        tailscale_host_access: []
+
+    - name: verify empty list does not recreate host access policy
+      ansible.builtin.stat:
+        path: /etc/firewalld/policies/tailscale-host.xml
+      register: tailscale_host_policy_without_ports
+
+    - name: confirm empty list has the same effect as false
+      ansible.builtin.assert:
+        that: not tailscale_host_policy_without_ports.stat.exists
+
+    - name: remove optional integration directories for standalone check
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/firewalld/policies
+        - /etc/systemd/network
+        - /etc/knot-resolver/config.d
+
+    - name: rerun role without optional integrations
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+      vars:
+        tailscale_accept_dns: false
+        tailscale_accept_routes: false
+        tailscale_listen_port: 41642
+        tailscale_limit_journal_logs: false
+        tailscale_host_access: []
+
+    - name: enable peer relay without optional integration directories
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+      vars:
+        tailscale_peer_relay_port: 40000
+        tailscale_peer_relay_static_endpoints: ["203.0.113.10:45000"]
+
+    - name: read standalone peer relay configuration
+      ansible.builtin.slurp:
+        src: /etc/tailscale/tailscaled.json
+      register: tailscale_standalone_relay_config
+
+    - name: inspect optional integration directories after standalone run
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/firewalld/policies
+        - /etc/systemd/network
+        - /etc/knot-resolver/config.d
+      register: tailscale_standalone_directories
+
+    - name: verify standalone role did not create optional integration directories
+      ansible.builtin.assert:
+        that:
+          - tailscale_standalone_directories.results | selectattr('stat.exists') | list | length == 0
+          - (tailscale_standalone_relay_config.content | b64decode | from_json).relayServerPort == 40000
+          - "(tailscale_standalone_relay_config.content | b64decode | from_json).relayServerStaticEndpoints == ['203.0.113.10:45000']"

@@ -6,13 +6,3 @@ galaxy_info:
   license: Apache-2.0
   author: escapace
   min_ansible_version: "2.17"
-
-dependencies:
-  - role: escapace.kresd
-    when:
-      - tailscale_tailnet_dns | bool
-      - tailscale_tailnet_name is not none
-      - tailscale_tailnet_name | length > 0
-      - provider is not defined or provider != "ec2"
-  - role: escapace.aws_environment
-    when: provider is defined and provider == "ec2"

@@ -1,0 +1,117 @@
+---
+- name: check that knot resolver is absent without an explicit integration
+  ansible.builtin.stat:
+    path: /etc/knot-resolver/config.d
+  register: tailscale_initial_knot_directory
+
+- name: verify tailscale did not install knot resolver
+  ansible.builtin.assert:
+    that: not tailscale_initial_knot_directory.stat.exists
+
+- name: enable test-only epel and crb repositories for knot resolver dependencies
+  ansible.builtin.include_role:
+    name: escapace.epel
+
+- name: import test knot resolver repository key
+  ansible.builtin.rpm_key:
+    key: https://download.copr.fedorainfracloud.org/results/@cznic/knot-resolver/pubkey.gpg
+    state: present
+
+- name: configure test knot resolver repository
+  ansible.builtin.get_url:
+    url: https://copr.fedorainfracloud.org/coprs/g/cznic/knot-resolver/repo/epel-10/group_cznic-knot-resolver-epel-10.repo
+    dest: /etc/yum.repos.d/group_cznic-knot-resolver-epel-10.repo
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: install knot resolver for optional integration testing
+  ansible.builtin.dnf:
+    name: knot-resolver
+    state: present
+    update_cache: true
+
+- name: create test knot resolver drop-in directory
+  ansible.builtin.file:
+    path: /etc/knot-resolver/config.d
+    owner: root
+    group: knot-resolver
+    mode: "0750"
+    state: directory
+
+- name: configure test knot resolver drop-in loader
+  ansible.builtin.copy:
+    dest: /etc/knot-resolver/config.yaml
+    content: |
+      network:
+        listen:
+          - interface: 127.0.0.1@15353
+      lua:
+        script: |
+          dofile('/etc/knot-resolver/config.d/880-policy-tailscale.lua')
+    owner: root
+    group: knot-resolver
+    mode: "0640"
+
+- name: reject empty tailscale resolver addresses before publishing a drop-in
+  block:
+    - name: try empty tailscale resolvers
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+      vars:
+        tailscale_resolvers: []
+
+    - name: fail if empty tailscale resolvers were accepted
+      ansible.builtin.fail:
+        msg: tailscale accepted empty resolvers
+  rescue:
+    - name: verify tailscale resolver validation failed
+      ansible.builtin.assert:
+        that: "'tailscale_resolvers must contain one to four' in (ansible_failed_result | to_json)"
+
+- name: configure the optional knot resolver integration
+  ansible.builtin.include_role:
+    name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+
+- name: inspect tailscale knot resolver drop-in
+  ansible.builtin.stat:
+    path: /etc/knot-resolver/config.d/880-policy-tailscale.lua
+  register: tailscale_knot_drop_in
+
+- name: verify the knot resolver drop-in permissions
+  ansible.builtin.assert:
+    that:
+      - tailscale_knot_drop_in.stat.exists
+      - tailscale_knot_drop_in.stat.mode == '0640'
+      - tailscale_knot_drop_in.stat.gr_name == 'knot-resolver'
+
+- name: install knot resolver matcher test
+  ansible.builtin.copy:
+    src: "{{ lookup('env', 'MOLECULE_SCENARIO_DIRECTORY') }}/files/check-knot-policy.lua"
+    dest: /tmp/tailscale-check-knot-policy.lua
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: verify knot resolver match and flag order without tailnet enrollment
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/luajit
+      - /tmp/tailscale-check-knot-policy.lua
+      - /etc/knot-resolver/config.d/880-policy-tailscale.lua
+  changed_when: false
+
+- name: disable the optional knot resolver integration
+  ansible.builtin.include_role:
+    name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
+  vars:
+    tailscale_accept_dns: false
+
+- name: inspect knot resolver integration after disabling dns acceptance
+  ansible.builtin.stat:
+    path: /etc/knot-resolver/config.d/880-policy-tailscale.lua
+  register: tailscale_knot_disabled_drop_in
+
+- name: verify the knot resolver integration was removed
+  ansible.builtin.assert:
+    that: not tailscale_knot_disabled_drop_in.stat.exists

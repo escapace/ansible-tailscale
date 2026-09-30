@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- {{ ansible_managed }} -->
+<policy target="CONTINUE" priority="-1">
+  <ingress-zone name="ANY"/>
+  <egress-zone name="HOST"/>
+  <port port="{{ tailscale_peer_relay_port }}" protocol="udp"/>
+</policy>

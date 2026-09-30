@@ -2,9 +2,26 @@
 - name: converge
   hosts: all
   pre_tasks:
-    - name: install systemd for tailscale role testing
+    - name: install systemd and firewalld for tailscale role testing
       ansible.builtin.package:
-        name: systemd
+        name:
+          - systemd
+          - firewalld
         state: present
+
+    - name: create optional systemd-networkd configuration directory
+      ansible.builtin.file:
+        path: /etc/systemd/network
+        state: directory
+        mode: "0755"
+
+    - name: create optional firewalld object directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /etc/firewalld/policies
+        - /etc/firewalld/zones
   roles:
     - role: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"

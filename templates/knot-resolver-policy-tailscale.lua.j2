@@ -1,22 +1,28 @@
-tailscale = policy.todnames(filter_strings({
-  '{{ tailscale_tailnet_name }}.'
-}))
-
-policy.add(policy.suffix(policy.FLAGS({'NO_CACHE', 'NO_EDNS', 'NO_0X20'}), tailscale))
-
-{% raw %}
-policy.add(policy.suffix(policy.STUB({
-{% endraw %}
-{% for item in tailscale_resolvers %}
-{% if kresd_ipv6 and item.address | ansible.utils.ipv6 %}
-{{ '\'' + item.address | ansible.utils.ipv6('address') + '\',' }}
-{% endif %}
+-- Knot policy matchers see wire-format DNS names, not dotted text.
+local ts_net = policy.todnames({'ts.net.'})[1]
+local flags = policy.FLAGS({'NO_CACHE', 'NO_EDNS', 'NO_0X20'})
+local stub = policy.STUB({
+{% for resolver in tailscale_resolvers %}
+  {{ resolver.address | to_json }},
 {% endfor %}
-{% for item in tailscale_resolvers %}
-{% if kresd_ipv4 and item.address | ansible.utils.ipv4 %}
-{{ '\'' + item.address | ansible.utils.ipv4('address') + '\',' }}
-{% endif %}
-{% endfor %}
-{% raw %}
-}), tailscale))
-{% endraw %}
+})
+
+local function route_to_tailscale(state, request)
+  flags(state, request)
+  return stub(state, request)
+end
+
+policy.add(function(_, query)
+  local name = query:name():lower()
+  if name:sub(-#ts_net) ~= ts_net then return nil end
+
+  local offset = 1
+  for _ = 1, 4 do
+    local length = name:byte(offset)
+    if length == nil or length < 1 or length > 63 then return nil end
+    offset = offset + length + 1
+  end
+  if offset == #name and name:byte(offset) == 0 then
+    return route_to_tailscale
+  end
+end)

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- {{ ansible_managed }} -->
+<policy target="{{ 'ACCEPT' if tailscale_host_access is true else 'CONTINUE' }}" priority="-1">
+  <ingress-zone name="tailscale"/>
+  <egress-zone name="HOST"/>
+{% for entry in ([] if tailscale_host_access is boolean else tailscale_host_access) %}
+  <port port="{{ entry.split('/')[0] }}" protocol="{{ entry.split('/')[1] }}"/>
+{% endfor %}
+</policy>
