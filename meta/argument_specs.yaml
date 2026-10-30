@@ -70,6 +70,10 @@ argument_specs:
         type: bool
         default: true
         description: accept tailnet routes advertised by other nodes
+      tailscale_stateful_filtering:
+        type: bool
+        default: true
+        description: block new connections forwarded from non-tailscale interfaces into the tailnet
       tailscale_limit_journal_logs:
         type: bool
         default: true

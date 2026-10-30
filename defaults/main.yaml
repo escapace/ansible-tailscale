@@ -19,6 +19,7 @@ tailscale_peer_relay_static_endpoints: []
 tailscale_host_access: true
 tailscale_accept_dns: true
 tailscale_accept_routes: true
+tailscale_stateful_filtering: true
 tailscale_limit_journal_logs: true
 tailscale_resolvers:
   - { address: "100.100.100.100" }

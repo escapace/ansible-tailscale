@@ -4,7 +4,7 @@
   'acceptDNS': tailscale_accept_dns | bool,
   'acceptRoutes': tailscale_accept_routes | bool,
   'netfilterMode': 'on',
-  'noStatefulFiltering': false,
+  'noStatefulFiltering': not tailscale_stateful_filtering,
   'disableSNAT': false,
   'allowLANWhileUsingExitNode': false,
   'autoUpdate': {'check': true, 'apply': false}

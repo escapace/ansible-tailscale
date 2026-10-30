@@ -17,6 +17,11 @@
         src: /etc/firewalld/policies/tailscale-direct.xml
       register: tailscale_direct_policy
 
+    - name: read firewalld forwarding deny policy
+      ansible.builtin.slurp:
+        src: /etc/firewalld/policies/tailscale-egress.xml
+      register: tailscale_egress_policy
+
     - name: read firewalld host policy
       ansible.builtin.slurp:
         src: /etc/firewalld/policies/tailscale-host.xml
@@ -64,6 +69,9 @@
           - '''<port port="41641" protocol="udp"/>'' in (tailscale_direct_policy.content | b64decode)'
           - '''<ingress-zone name="ANY"/>'' in (tailscale_direct_policy.content | b64decode)'
           - '''<egress-zone name="HOST"/>'' in (tailscale_direct_policy.content | b64decode)'
+          - '''<policy target="DROP" priority="-100">'' in (tailscale_egress_policy.content | b64decode)'
+          - '''<ingress-zone name="ANY"/>'' in (tailscale_egress_policy.content | b64decode)'
+          - '''<egress-zone name="tailscale"/>'' in (tailscale_egress_policy.content | b64decode)'
           - '''<policy target="ACCEPT" priority="-1">'' in (tailscale_host_policy.content | b64decode)'
           - '''<ingress-zone name="tailscale"/>'' in (tailscale_host_policy.content | b64decode)'
           - '''<zone target="DROP">'' in (tailscale_zone.content | b64decode)'
@@ -147,12 +155,21 @@
       loop_control:
         loop_var: tailscale_invalid_relay_case
 
+    - name: install an application owned forwarding exception
+      ansible.builtin.copy:
+        src: files/app-tail-egress.xml
+        dest: /etc/firewalld/policies/app-tail-egress.xml
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: run role with alternate configuration
       ansible.builtin.include_role:
         name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
       vars:
         tailscale_accept_dns: false
         tailscale_accept_routes: false
+        tailscale_stateful_filtering: false
         tailscale_listen_port: 41642
         tailscale_peer_relay_port: 40000
         tailscale_peer_relay_static_endpoints: ["203.0.113.10:45000", "[2001:db8::1]:45000"]
@@ -174,6 +191,16 @@
         src: /etc/firewalld/policies/tailscale-direct.xml
       register: tailscale_alternate_policy
 
+    - name: read forwarding deny policy with stateful filtering disabled
+      ansible.builtin.slurp:
+        src: /etc/firewalld/policies/tailscale-egress.xml
+      register: tailscale_alternate_egress_policy
+
+    - name: read application exception after rerunning the role
+      ansible.builtin.slurp:
+        src: /etc/firewalld/policies/app-tail-egress.xml
+      register: tailscale_application_egress_policy
+
     - name: read alternate peer relay policy
       ansible.builtin.slurp:
         src: /etc/firewalld/policies/tailscale-relay.xml
@@ -194,6 +221,9 @@
         that:
           - (tailscale_alternate_config.content | b64decode | from_json).acceptDNS == false
           - (tailscale_alternate_config.content | b64decode | from_json).acceptRoutes == false
+          - (tailscale_alternate_config.content | b64decode | from_json).noStatefulFiltering == true
+          - tailscale_alternate_egress_policy.content == tailscale_egress_policy.content
+          - (tailscale_application_egress_policy.content | b64decode | trim) == lookup('file', 'files/app-tail-egress.xml')
           - (tailscale_alternate_config.content | b64decode | from_json).relayServerPort == 40000
           - "(tailscale_alternate_config.content | b64decode | from_json).relayServerStaticEndpoints == ['203.0.113.10:45000', '[2001:db8::1]:45000']"
           - '''<port port="40000" protocol="udp"/>'' in (tailscale_alternate_relay_policy.content | b64decode)'
@@ -258,6 +288,11 @@
         src: /etc/tailscale/tailscaled.json
       register: tailscale_relay_config_disabled
 
+    - name: read forwarding deny policy after restoring stateful filtering
+      ansible.builtin.slurp:
+        src: /etc/firewalld/policies/tailscale-egress.xml
+      register: tailscale_restored_egress_policy
+
     - name: inspect direct connection policy after false
       ansible.builtin.stat:
         path: /etc/firewalld/policies/tailscale-direct.xml
@@ -268,6 +303,8 @@
         that:
           - not tailscale_host_policy_without_ports.stat.exists
           - tailscale_direct_policy_without_host_access.stat.exists
+          - (tailscale_relay_config_disabled.content | b64decode | from_json).noStatefulFiltering == false
+          - tailscale_restored_egress_policy.content == tailscale_egress_policy.content
           - not tailscale_relay_policy_disabled.stat.exists
           - "'relayServerPort' not in (tailscale_relay_config_disabled.content | b64decode | from_json)"
           - "'relayServerStaticEndpoints' not in (tailscale_relay_config_disabled.content | b64decode | from_json)"

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policy target="CONTINUE" priority="-500">
+  <ingress-zone name="public"/>
+  <egress-zone name="tailscale"/>
+  <rule family="ipv4">
+    <destination address="100.101.102.103/32"/>
+    <port port="443" protocol="tcp"/>
+    <accept/>
+  </rule>
+</policy>

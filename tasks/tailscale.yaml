@@ -1,4 +1,9 @@
 ---
+- name: require an explicit boolean stateful filtering policy
+  ansible.builtin.assert:
+    that: tailscale_stateful_filtering is boolean
+    fail_msg: tailscale_stateful_filtering requires a yaml boolean
+
 - name: require a fixed tailscale listening port
   ansible.builtin.assert:
     that:
@@ -254,6 +259,16 @@
   ansible.builtin.template:
     src: tailscale-zone.xml.j2
     dest: /etc/firewalld/zones/tailscale.xml
+    owner: root
+    group: root
+    mode: "0644"
+  when: tailscale_firewalld_policy_directory.stat.isdir | default(false)
+  notify: tailscale reload firewalld
+
+- name: configure default deny forwarding into tailscale
+  ansible.builtin.template:
+    src: tailscale-egress.xml.j2
+    dest: /etc/firewalld/policies/tailscale-egress.xml
     owner: root
     group: root
     mode: "0644"

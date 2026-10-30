@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- {{ ansible_managed }} -->
+<policy target="DROP" priority="-100">
+  <short>tailscale egress</short>
+  <description>Deny unmatched forwarded traffic reaching this policy; earlier exceptions take precedence.</description>
+  <ingress-zone name="ANY"/>
+  <egress-zone name="tailscale"/>
+</policy>

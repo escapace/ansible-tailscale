@@ -11,12 +11,13 @@ Installs and configures Tailscale on Red Hat-family hosts. It enables `tailscale
 - `tailscale_accept_dns` defaults to `true`. The host accepts tailnet DNS settings and, when Knot Resolver is present, the role installs a MagicDNS forwarding policy. Set it to `false` to remove that policy. Knot Resolver retains ownership of `/etc/resolv.conf`.
 - `tailscale_resolvers` defaults to Quad100's IPv4 and IPv6 addresses. Use one to four mappings such as `{address: "100.100.100.100"}`, with literal IPv4 or IPv6 addresses, to select different upstream DNS servers. This setting applies only to the Knot Resolver integration.
 - `tailscale_accept_routes` defaults to `true`, so the host accepts routes advertised by other tailnet nodes. Tailscale's Linux default is `false`.
+- `tailscale_stateful_filtering` defaults to `true`, blocking new connections forwarded from non-Tailscale interfaces into the tailnet. Containers that initiate connections through the host's Tailscale routes need `false` and an explicit firewall exception; see [Allowing forwarded connections into the tailnet](#allowing-forwarded-connections-into-the-tailnet). The optional firewalld forwarding deny policy remains installed with either value. Tailnet access rules still apply.
 - `tailscale_limit_journal_logs` defaults to `true` and sets `LogLevelMax=notice` for `tailscaled.service`. Set it to `false` to restore the packaged unit's journal behavior. The filter can hide daemon messages written without an explicit severity, including error messages.
 - `tailscale_package_state` defaults to `present`. Override the repository URL, distribution, key, and signature-check variables in `defaults/main.yaml` to use a different package repository.
 
 ## Daemon configuration
 
-The role writes an `alpha0` JSON configuration file. It keeps netfilter mode `on`, stateful filtering enabled, and Tailscale's subnet-route SNAT enabled. It disables LAN access while using an exit node and checks for updates without automatically installing them. Enroll the node separately with `tailscale up`. The file is unlocked, so `tailscale set` can change runtime settings.
+The role writes an `alpha0` JSON configuration file. It keeps netfilter mode `on` and Tailscale's subnet-route SNAT enabled. Stateful filtering follows `tailscale_stateful_filtering`. It disables LAN access while using an exit node and checks for updates without automatically installing them. Enroll the node separately with `tailscale up`. The file is unlocked, so `tailscale set` can change runtime settings.
 
 `TS_DEBUG_FIREWALL_MODE=nftables` selects Tailscale's nftables implementation. Tailscale documents this environment variable as temporary. `TS_NO_LOGS_NO_SUPPORT=true` disables Tailscale client telemetry and the support that depends on it. These settings do not change the tailnet's network-flow-log configuration.
 
@@ -28,7 +29,7 @@ The Knot policy uses `NO_CACHE`, `NO_EDNS`, and `NO_0X20` for these queries. The
 
 If `/etc/systemd/network` exists, the role tells systemd-networkd to leave `tailscale0` unmanaged.
 
-If `/etc/firewalld/policies` exists, the role persistently binds `tailscale0` to its own `tailscale` zone. It manages a UDP policy for direct connections from any ingress zone, a host-access policy controlled by `tailscale_host_access`, and an `ANY` → `HOST` UDP policy when the peer relay is enabled. The zone blocks forwarding by default; see [Activating a subnet router](#activating-a-subnet-router) for how to allow it. The role does not change the `public` zone.
+If `/etc/firewalld/policies` exists, the role persistently binds `tailscale0` to its own `tailscale` zone. It manages a UDP policy for direct connections from any ingress zone, a host-access policy controlled by `tailscale_host_access`, and an `ANY` → `HOST` UDP policy when the peer relay is enabled. It also installs an independent `ANY` → `tailscale` forwarding deny policy at priority `-100`. The zone drops unmatched ingress. See the forwarding sections below for explicit exceptions in each direction. The role does not change the `public` zone.
 
 The role validates the complete firewalld configuration before reloading a running daemon. It does not start firewalld or networkd. Restarts and reloads of firewalld, networkd, Knot, and `tailscaled` apply only when each service is already running, and never in Ansible check mode.
 
@@ -45,6 +46,37 @@ Another role can allow access to its own service regardless of `tailscale_host_a
 ```
 
 The application role needs to validate the complete firewalld configuration before reloading a running firewalld service. This policy allows traffic from `tailscale0` to the listed host ports. It does not allow forwarding or change the `public` zone.
+
+## Allowing forwarded connections into the tailnet
+
+With firewalld integration, this role owns `/etc/firewalld/policies/tailscale-egress.xml`. For new, non-DNAT routed traffic, its `DROP` target denies unmatched forwarding from any zone into `tailscale0`, regardless of `tailscale_stateful_filtering` or `tailscale_host_access`. `ANY` excludes `HOST`, so the policy does not restrict connections initiated by the host. Established or related replies remain allowed. Routed `tailscale` → `tailscale` traffic also needs an exception. This policy does not deny forwarding between unrelated interfaces or traffic leaving `tailscale0` for another zone.
+
+A Docker or application role can own a separate exception without editing this role's policy or Docker's generated rules. For example, it can manage `/etc/firewalld/policies/app-tail-egress.xml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<policy target="CONTINUE" priority="-500">
+  <ingress-zone name="docker"/>
+  <egress-zone name="tailscale"/>
+  <rule family="ipv4">
+    <destination address="100.101.102.103/32"/>
+    <port port="443" protocol="tcp"/>
+    <accept/>
+  </rule>
+</policy>
+```
+
+Replace the destination and port with the workload's approved endpoint. The `docker` zone must exist and contain the intended bridge interfaces; choose another ingress zone for non-Docker workloads. This example permits all containers in that zone to reach one IPv4 endpoint on TCP 443. Add a source restriction when only a subset needs access, and separate IPv6 rules when required. Prefer these restrictions over a blanket `docker` → `tailscale` accept.
+
+Exception policies need a priority lower than `-100`, such as `-500`, so they run before the deny policy. An allow evaluated after a drop cannot restore the packet. The `CONTINUE` target lets unmatched traffic reach the deny policy. Keep a workload's IPv4 and IPv6 rules in the same policy where practical. Give separate policies matching the same zone pair distinct priorities below `-100`: firewalld 2.4.3 can misorder overlapping policies with identical priorities after a reload. See [firewalld policy ordering](https://firewalld.org/2020/09/policy-objects-introduction#priority).
+
+The exception's owning role manages its creation, updates, and removal. The deployment caller owns `tailscale_stateful_filtering`. Tailscale's enabled stateful filter still drops container-initiated connections even when firewalld allows them; a separate nftables accept cannot override that drop.
+
+To enable forwarded connections, install the intended exceptions, validate the complete configuration with `firewall-offline-cmd --system-config=/etc/firewalld --check-config`, and reload the active firewall before setting `tailscale_stateful_filtering: false`. Without firewalld integration, the deployment caller manages forwarding restrictions separately. Keep stateful filtering enabled on hosts that do not need forwarded connections.
+
+Firewalld accepts established connections before these policies, so removing an exception does not immediately terminate existing connections. With `StrictForwardPorts=no`, it also accepts destination-NAT (DNAT) traffic before policy evaluation; the deny policy does not restrict those connections. For deployments using DNAT into the tailnet, review the NAT rules alongside the forwarding exceptions to check that they allow the intended access. Global DNAT settings belong to the base-firewall owner. This role leaves them unchanged, since enabling strict forwarding also affects Docker port publishing, and does not validate the deployment's NAT rules.
+
+Test permitted and denied connections for each enabled IP family, host-originated connections, replies, and Docker published ports after firewall reloads, daemon restarts, and exception removal. Include DNAT paths where used. Tailnet access rules still apply; ordinary masqueraded containers share the host's tailnet identity rather than receiving separate container identities.
 
 ## Activating a subnet router
 
