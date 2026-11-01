@@ -1,6 +1,6 @@
 # escapace.tailscale
 
-Installs and configures Tailscale on Red Hat-family hosts. It enables `tailscaled` at boot without starting it during image builds. Enrollment and subnet-router setup are separate from this role.
+Installs and configures Tailscale on Red Hat-family hosts. It enables `tailscaled` at boot without starting it during image builds. A systemd drop-in restarts the daemon after failure with a five-second delay; deliberate stops remain stopped. Start limits and startup timeouts remain unchanged. Enrollment and subnet-router setup are separate from this role.
 
 ## Variables
 

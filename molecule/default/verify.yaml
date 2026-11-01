@@ -2,6 +2,18 @@
 - name: verify tailscale image state
   hosts: all
   tasks:
+    - name: read crash recovery drop-in
+      ansible.builtin.slurp:
+        src: /etc/systemd/system/tailscaled.service.d/30-ansible-crash-recovery.conf
+      register: tailscale_test_crash_recovery
+
+    - name: verify crash recovery without overriding limits or startup timeout
+      ansible.builtin.assert:
+        that:
+          - >-
+            (tailscale_test_crash_recovery.content | b64decode).splitlines() ==
+            ['[Service]', 'Restart=on-failure', 'RestartSec=5s']
+
     - name: read daemon configuration
       ansible.builtin.slurp:
         src: /etc/tailscale/tailscaled.json

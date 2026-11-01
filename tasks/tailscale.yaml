@@ -208,6 +208,17 @@
     - tailscale daemon-reload
     - tailscale restart tailscaled
 
+- name: configure tailscaled crash recovery
+  ansible.builtin.copy:
+    src: crash-recovery.conf
+    dest: /etc/systemd/system/tailscaled.service.d/30-ansible-crash-recovery.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - tailscale daemon-reload
+    - tailscale restart tailscaled
+
 - name: enable tailscaled
   ansible.builtin.systemd_service:
     name: tailscaled.service
