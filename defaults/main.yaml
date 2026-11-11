@@ -1,26 +1,24 @@
 ---
-# defaults file for escapace.tailscale
-
+tailscale_accept_dns: true
+tailscale_accept_routes: true
+tailscale_distribution: "{{ 'rhel' if ansible_facts['distribution'] == 'RedHat' else 'rhel' if ansible_facts['distribution'] == 'Rocky' else ansible_facts['distribution'] | lower }}"
+tailscale_gpgcheck: true
+tailscale_host_access: true
+tailscale_limit_journal_logs: true
+tailscale_listen_port: 41641
 tailscale_package: tailscale
 tailscale_package_state: present
-tailscale_distribution: "{{ 'rhel' if ansible_facts['distribution'] == 'RedHat' else 'rhel' if ansible_facts['distribution'] == 'Rocky' else ansible_facts['distribution'] | lower }}"
-tailscale_rpm_key: "https://pkgs.tailscale.com/stable/{{ tailscale_distribution }}/{{ ansible_facts['distribution_major_version'] }}/repo.gpg"
-tailscale_rpm_key_path: /etc/pki/rpm-gpg/RPM-GPG-KEY-tailscale
-tailscale_rpm_key_fingerprint: 2596A99EAAB33821893C0A79458CA832957F5868
+tailscale_peer_relay_port: null
+tailscale_peer_relay_static_endpoints: []
 tailscale_repo_baseurl: "https://pkgs.tailscale.com/stable/{{ tailscale_distribution }}/{{ ansible_facts['distribution_major_version'] }}/$basearch"
 # Keep package signature checks enabled. Repository metadata signature checks
 # require DNF's separate per-repository key store, which Ansible's rpm_key and
 # dnf modules do not manage noninteractively.
 tailscale_repo_gpgcheck: false
-tailscale_gpgcheck: true
-tailscale_listen_port: 41641
-tailscale_peer_relay_port: null
-tailscale_peer_relay_static_endpoints: []
-tailscale_host_access: true
-tailscale_accept_dns: true
-tailscale_accept_routes: true
-tailscale_stateful_filtering: true
-tailscale_limit_journal_logs: true
 tailscale_resolvers:
   - { address: "100.100.100.100" }
   - { address: "fd7a:115c:a1e0::53" }
+tailscale_rpm_key: "https://pkgs.tailscale.com/stable/{{ tailscale_distribution }}/{{ ansible_facts['distribution_major_version'] }}/repo.gpg"
+tailscale_rpm_key_fingerprint: 2596A99EAAB33821893C0A79458CA832957F5868
+tailscale_rpm_key_path: /etc/pki/rpm-gpg/RPM-GPG-KEY-tailscale
+tailscale_stateful_filtering: true

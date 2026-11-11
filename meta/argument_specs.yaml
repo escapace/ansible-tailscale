@@ -4,77 +4,77 @@ argument_specs:
     short_description: prepare tailscale on a red hat host
     options:
       tailscale_package:
+        description: package to install
         type: str
         default: tailscale
-        description: package to install
       tailscale_package_state:
+        description: desired package state
         type: str
         default: present
-        description: desired package state
       tailscale_distribution:
-        type: str
         description: distribution component of the tailscale repository URL
-      tailscale_rpm_key:
         type: str
+      tailscale_rpm_key:
         description: tailscale repository signing key URL
+        type: str
       tailscale_rpm_key_path:
+        description: path for the tailscale repository signing key
         type: path
         default: /etc/pki/rpm-gpg/RPM-GPG-KEY-tailscale
-        description: path for the tailscale repository signing key
       tailscale_rpm_key_fingerprint:
+        description: expected repository key fingerprint
         type: str
         default: 2596A99EAAB33821893C0A79458CA832957F5868
-        description: expected repository key fingerprint
       tailscale_repo_baseurl:
-        type: str
         description: tailscale package repository URL
+        type: str
       tailscale_repo_gpgcheck:
+        description: verify repository metadata signatures
         type: bool
         default: false
-        description: verify repository metadata signatures
       tailscale_gpgcheck:
+        description: verify package signatures
         type: bool
         default: true
-        description: verify package signatures
       tailscale_resolvers:
+        description: quad100 addresses for optional knot resolver integration when dns is accepted
         type: list
         elements: dict
-        description: quad100 addresses for optional knot resolver integration when dns is accepted
         options:
           address:
+            description: resolver ip address
             type: str
             required: true
-            description: resolver ip address
       tailscale_listen_port:
+        description: fixed udp listening port and corresponding firewalld grant
         type: int
         default: 41641
-        description: fixed udp listening port and corresponding firewalld grant
       tailscale_peer_relay_port:
+        description: optional fixed udp peer relay port, distinct from the direct connection port
         type: raw
         default: null
-        description: optional fixed udp peer relay port, distinct from the direct connection port
       tailscale_peer_relay_static_endpoints:
-        type: list
-        elements: str
-        default: []
         description: additional literal external ip and port endpoints advertised by an enabled peer relay
+        type: list
+        default: []
+        elements: str
       tailscale_host_access:
+        description: true grants all tailnet host traffic; false or an empty list adds no grant; a list contains protocol-qualified ports such as 22/tcp
         type: raw
         default: true
-        description: true grants all tailnet host traffic; false or an empty list adds no grant; a list contains protocol-qualified ports such as 22/tcp
       tailscale_accept_dns:
-        type: bool
-        default: true
         description: use tailnet dns configuration on the host
+        type: bool
+        default: true
       tailscale_accept_routes:
-        type: bool
-        default: true
         description: accept tailnet routes advertised by other nodes
+        type: bool
+        default: true
       tailscale_stateful_filtering:
-        type: bool
-        default: true
         description: block new connections forwarded from non-tailscale interfaces into the tailnet
-      tailscale_limit_journal_logs:
         type: bool
         default: true
+      tailscale_limit_journal_logs:
         description: filter info-level tailscaled journal messages
+        type: bool
+        default: true

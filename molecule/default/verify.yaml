@@ -374,12 +374,12 @@
     - name: inspect optional integration directories after standalone run
       ansible.builtin.stat:
         path: "{{ item }}"
+      register: tailscale_standalone_directories
+
       loop:
         - /etc/firewalld/policies
         - /etc/systemd/network
         - /etc/knot-resolver/config.d
-      register: tailscale_standalone_directories
-
     - name: verify standalone role did not create optional integration directories
       ansible.builtin.assert:
         that:

@@ -2,7 +2,7 @@
 galaxy_info:
   role_name: tailscale
   description: tailscale role
+  author: escapace
   issue_tracker_url: https://github.com/escapace/ansible-tailscale/issues
   license: Apache-2.0
-  author: escapace
   min_ansible_version: "2.17"
